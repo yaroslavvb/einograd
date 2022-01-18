@@ -125,6 +125,18 @@ def from_numpy(x) -> torch.Tensor:
     else:
         return torch.tensor(x)
 
+global_forward_flops = 0
+def get_global_forward_flops():
+    global global_forward_flops
+    return global_forward_flops
+
+def increment_global_forward_flops(i):
+    global global_forward_flops
+    global_forward_flops += i
+
+def reset_global_forward_flops():
+    global global_forward_flops
+    global_forward_flops = 0
 
 class timeit:
     """Decorator to measure length of time spent in the block in millis and log

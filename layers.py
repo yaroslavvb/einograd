@@ -1,11 +1,12 @@
+import util
 from base import *
 
 from util import *
 
 import torch.nn.functional as F
 
-
 _idx0 = 'a'
+
 
 class ContractibleTensor(Tensor, ABC):
     """
@@ -60,8 +61,8 @@ class ContractibleTensor(Tensor, ABC):
         t1 = self
         t2 = other
 
-        # assert isinstance(t1, DenseLinear) and isinstance(t2, DenseVector), "contraction tested only for matrix@vector "
-        # return self.W * x
+        # assert isinstance(t1, DenseLinear) and isinstance(t2, DenseVector), "contraction tested only for
+        # matrix@vector " return self.W * x
 
         assert t1.in_dims == t2.out_dims  # ij,j -> i
         (t1_idx, t1_idx_out, t1_idx_in) = t1.all_idx()
@@ -95,18 +96,19 @@ class ContractibleTensor(Tensor, ABC):
             assert data.shape == ()
             return DenseScalar(data)
 
-
-
-
+    def __str__(self):
+        return str(self.value)
 
 
 class ZeroTensor(Tensor):
     """Arbitrary shape tensor of zeros"""
+
     def in_dims(self):
         return ()
 
     def out_dims(self):
         return ()
+
 
 zero = ZeroTensor()
 
@@ -128,6 +130,7 @@ class DenseScalar(Scalar):
     @property
     def value(self):
         return self._value
+
 
 class DenseVector(Vector, ContractibleTensor):
     _value: torch.Tensor
@@ -152,6 +155,10 @@ class DenseVector(Vector, ContractibleTensor):
     def value(self):
         return self._value
 
+    @property
+    def T(self):
+        return DenseCovector(self._value)
+
 
 class DenseCovector(Covector, ContractibleTensor):
     _value: torch.Tensor
@@ -175,6 +182,10 @@ class DenseCovector(Covector, ContractibleTensor):
     @property
     def value(self):
         return self._value
+
+    @property
+    def T(self):
+        return DenseCovector(self._value)
 
 
 class DenseLinear(LinearMap, ContractibleTensor):
@@ -209,7 +220,7 @@ class LeastSquares(AtomicFunction):
 
     def __call__(self, x: Tensor):
         x = x.value
-        return DenseScalar((x * x).sum()/2)
+        return DenseScalar((x * x).sum() / 2)
 
     @property
     def d(self):
@@ -243,13 +254,13 @@ class DLeastSquares(AtomicFunction, LinearizedFunction):
         n = self._in_dims[0]
 
         if self.order == 1:
-            return x
+            return x.T
         elif self.order == 2:
             return DenseLinear(torch.eye(n))
         # three-dimensional identity tensor, does not exist in numpy
         elif self.order == 3:
-            x = torch.einsum('ij,jk->ijk', torch.eye(n), torch.eye(n))
             assert False, "TODO: wrap this into proper rank-3 tensor"
+            # x = torch.einsum('ij,jk->ijk', torch.eye(n), torch.eye(n))
 
     @property
     def d(self):
@@ -262,6 +273,68 @@ class DLeastSquares(AtomicFunction, LinearizedFunction):
     @property
     def out_dims(self):
         return self._out_dims
+
+    def __matmul__(self, other):
+        if isinstance(other, AtomicFunction):
+            return MemoizedFunctionComposition([self, other])
+        else:
+            return NotImplemented
+
+
+class Identity(AtomicFunction):
+    def __init__(self, dim: int):
+        self._in_dims = (dim,)
+        self._out_dims = (dim,)
+
+    def __call__(self, x: Tensor):
+        return x
+
+    @property
+    def d(self):
+        return DIdentity(self._in_dims[0])
+
+    @property
+    def in_dims(self):
+        return self._in_dims
+
+    @property
+    def out_dims(self):
+        return self._out_dims
+
+    def __matmul__(self, other):
+        if isinstance(other, AtomicFunction):
+            return MemoizedFunctionComposition([self, other])
+        else:
+            return NotImplemented
+
+
+class DIdentity(AtomicFunction):
+    """Derivatives of identity"""
+
+    def __init__(self, dim: int, order: int = 1):
+        self._in_dims = (dim,)
+        self._out_dims = (dim,)
+        self.order = order
+
+    @property
+    def out_dims(self):
+        return self._out_dims
+
+    @property
+    def in_dims(self):
+        return self._in_dims
+
+    def d(self):
+        return zero
+
+    def __call__(self, x: DenseVector):
+        assert self.order <= 2, "third and higher order derivatives not implemented"
+        n = self._in_dims[0]
+
+        if self.order == 1:
+            return DenseLinear(torch.eye(n))
+        elif self.order == 2:
+            return 0
 
     def __matmul__(self, other):
         if isinstance(other, AtomicFunction):
@@ -348,7 +421,6 @@ class DRelu(AtomicFunction, LinearizedFunction):
 #         # return DenseVector(data)
 
 
-
 #    TODO(y): maybe also implement Function interface?
 class MemoizedFunctionComposition:
     """Represents a composition of functions with memoization
@@ -356,7 +428,7 @@ class MemoizedFunctionComposition:
     Bound call, ie (f@g@h)(x), at this point it is frozen and can't be modified.
     """
 
-    children: List[Any]    # List[Function] fix: forward references
+    children: List[Any]  # List[Function] fix: forward references
     # parent               # FunctionComposition type, multiple Compositions point here. fix: forward reference
     arg: Any
 
@@ -364,11 +436,13 @@ class MemoizedFunctionComposition:
         self.arg = None
         self.parent = parent
         self.children = children
+        self._saved_outputs = [None] * (len(children) + 1)
+
         for child in children:
             if hasattr(child, 'parent') and child.parent is not None:
-                assert False
-                print(f"Warning, Node {child} already has parent {child.parent}, reuse the same function object in "
-                      f"multiple places in tree may break memoization.")
+                assert False, f"Warning, Node {child} already has parent {child.parent}"
+                # print(f"Warning, Node {child} already has parent {child.parent}, reuse the same function object in "
+                #      f"multiple places in tree may break memoization.")
             child.parent = self
 
     def __matmul__(self, other):
@@ -386,15 +460,61 @@ class MemoizedFunctionComposition:
             error_msg = "this case hasn't been tested, for now only single level of parent  redirection is allowed"
             assert self.parent is None, error_msg
             backlink = self if self.parent is None else self.parent
-            return MemoizedFunctionComposition(self.children[s.start:s.stop], backlink)
+            assert s.stop is None
+            assert len(self.children[s.start:]) > 0
+            return MemoizedFunctionComposition(self.children[s.start:], backlink)
         else:
             assert isinstance(s, int)
             return self.children[s]
 
-    def __call__(self, val):
-        assert self.arg is None, "argument is already bound"
-        assert val is not None
-        self.arg = val
+    def _bind(self, arg):
+        print('binding ', arg)
+        self.arg = arg
+        self._saved_outputs[len(self.children)] = arg
+
+    def memoized_compute(self, node):
+        """Composition([h3,h2,h1]): memoized_compute(h2) computes everything up to h2"""
+        assert self.arg is not None, "arg not bound, call _bind first"
+        assert id(self._saved_outputs[len(self.children)]) == id(self.arg)
+        assert node in self.children, "Trying to compute {node} but it's not in Composition"
+        idx = self.children.index(node)
+        print('memoized compute on ', idx)
+
+        # last_saved gives position of function whose output has been cached
+        # we treat "x" as a dummy function which returns itself, so
+        # last_cached == len(children) means just the output of "x" was cached
+        for last_cached in range(len(self.children)):
+            if self._saved_outputs[last_cached] is not None:
+                break
+        else:
+            last_cached = len(self.children)
+
+        print(f'found saved output of {last_cached} node')
+        for i in range(last_cached - 1, -1, -1):
+            if i == len(self.children):
+                assert id(self._saved_outputs[last_cached]) == id(self.arg)
+                continue
+
+            util.increment_global_forward_flops(1)
+            result = self.children[i](self._saved_outputs[i + 1])
+            self._saved_outputs[i] = result
+            print('saving output of ', i)
+
+        return self._saved_outputs[idx]
+
+    def __call__(self, arg: Vector):
+        assert isinstance(arg, Vector), "must call function with Vector type"
+        if self.parent is not None:
+            assert isinstance(self.parent, MemoizedFunctionComposition)
+            assert id(arg) == id(self.parent.arg)
+            return self.parent.memoized_compute(self.children[0])
+
+        if self.arg is None:
+            self._bind(arg)
+        else:
+            assert id(self.arg) == id(arg), "Reusing same composition for multiple args"
+
+        return self.memoized_compute(self.children[0])
 
 
 class LinearLayer(AtomicFunction):
@@ -402,7 +522,7 @@ class LinearLayer(AtomicFunction):
 
     _out_dims: Tuple[int]
     _in_dims: Tuple[int]
-    W: ContractibleTensor
+    W: DenseLinear
 
     def __init__(self, W):
         W = to_pytorch(W)
@@ -427,6 +547,7 @@ class LinearLayer(AtomicFunction):
         return self._in_dims
 
     def __call__(self, x: Vector) -> DenseVector:
+        assert isinstance(x, Vector)
         result = self.W * x
         assert isinstance(result, DenseVector)
         return result
@@ -443,7 +564,7 @@ class DLinearLayer(AtomicFunction, LinearizedFunction):
     def out_dims(self):
         return self.W.out_dims
 
-    def __init__(self, W: ContractibleTensor):
+    def __init__(self, W: DenseLinear):
         # for now, only support matrices
         assert len(W.in_idx()) == 1
         assert len(W.out_idx()) == 1

@@ -53,7 +53,7 @@ def test_contract():
     assert isinstance(y * x, Scalar)
 
 
-def test_unit_test_a():
+def _create_unit_test_a():
     W0 = u.to_pytorch([[1, -2], [-3, 4]])
     U0 = u.to_pytorch([[5, -6], [-7, 8]])
     x0 = u.to_pytorch([1, 2])
@@ -63,9 +63,13 @@ def test_unit_test_a():
     nonlin = Relu(x0.shape[0])
     loss = LeastSquares(x0.shape[0])
     x = DenseVector(x0)
+    return W0, U0, x0, x, W, nonlin, U, loss
 
-    (h1, h2, h3, h4) = (W, nonlin, U, loss)
-    # f = h4 @ h3 @ h2 @ h1  # => Composition (FunctionComposition)
+def test_unit_test_a():
+    (W0, U0, x0, x, h1, h2, h3, h4) = _create_unit_test_a()
+    (W, nonlin, U, loss) = (h1, h2, h3, h4)
+
+    # (h1, h2, h3, h4) = (W, nonlin, U, loss)
     f = MemoizedFunctionComposition([h4, h3, h2, h1])
     h = [None, f[3], f[2], f[1], f[0]]  # h[1] shorthand for h1, linked to a parent Composition
     assert type(h[1]) == LinearLayer
@@ -85,14 +89,33 @@ def test_unit_test_a():
     # check per-layer Jacobians
     dh1, dh2, dh3, dh4 = D(h1), D(h2), D(h3), D(h4)
 
-    print(dh1(a1) * dh2(a2))
-    u.check_equal(dh1(a1), [[0, 0], [500, 1000]])
-    u.check_equal(dh3(a3), [[0, 0], [500, 1000]])
+    u.check_equal(dh1(a1), W0)
+    u.check_equal(dh2(a2), [[0, 0], [0, 1]])
+    u.check_equal(dh3(a3), [[5, -6], [-7, 8]])
+    u.check_equal(dh4(a4), [-30, 40])
+    u.check_equal(dh4(a4) * dh3(a3), [-430, 500])
+    u.check_equal(dh4(a4) * dh3(a3) * dh2(a2), [0, 500])
+    u.check_equal(dh4(a4) * dh3(a3) * dh2(a2) * dh1(a1), [-1500, 2000])
+
+    u.reset_global_forward_flops()
+    assert u.get_global_forward_flops() == 0
+
+    result = f(x)
+    u.check_equal(result, 1250)
+    assert u.get_global_forward_flops() == 4
+    result = f(x)
+    assert u.get_global_forward_flops() == 4
+
+    # creating new composition does not reuse cache
+    (W0, U0, x0, x, h1, h2, h3, h4) = _create_unit_test_a()
+    (W, nonlin, U, loss) = (h1, h2, h3, h4)
+    f = MemoizedFunctionComposition([h4, h3, h2, h1])
+    result = f(x)
+    assert u.get_global_forward_flops() == 2*4
 
     # D(f)   # this is numerically equivalent to D(U) @ W * D(W)
     # slow = D(U) @ W * D(W)
     # fast = D(f) @ f[1:] * D(f[1])
-
     # print(slow(x0).forward_flops)  # high
     # print(fast(x0).forward_flops)   # low
 
@@ -230,7 +253,6 @@ def test_present1():
 
 if __name__ == '__main__':
     test_contract()
-    sys.exit()
     test_dense()
     test_relu()
     test_unit_test_a()
