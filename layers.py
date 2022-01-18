@@ -75,9 +75,6 @@ class ContractibleTensor(Tensor, ABC):
         result_idx = ''.join(sorted(list(result_set)))
 
         einsum_str = f"{t1_idx},{t2_idx}->{result_idx}"
-        print('doing einsum ', einsum_str)
-        print('tensor 1', t1.value)
-        print('tensor 2', t2.value)
         data = torch.einsum(einsum_str, t1.value, t2.value)
 
         # figure out new input, output indices, create corresponding object
@@ -110,7 +107,18 @@ class ZeroTensor(Tensor):
         return ()
 
 
+class IdentityLinearMap(Tensor):
+    """tensor representing identity linear map"""
+
+    def in_dims(self):
+        return ()
+
+    def out_dims(self):
+        return ()
+
 zero = ZeroTensor()
+Zero = ZeroTensor()   # TODO(y) remove one of the zeros
+One = IdentityLinearMap()
 
 
 class DenseScalar(Scalar):
@@ -187,8 +195,60 @@ class DenseCovector(Covector, ContractibleTensor):
     def T(self):
         return DenseCovector(self._value)
 
+class DenseSymmetricBilinear(SymmetricBilinearMap, ContractibleTensor):
+    """Symmetric bilinear map represented with a rank-3 tensor"""
+    def __init__(self, value):
+        value = to_pytorch(value)
+        assert len(value.shape) == 3
+        assert value.shape[0] > 0
+        assert value.shape[1] > 0
+        assert value.shape[2] > 0
+        assert value.shape[1] == value.shape[2]
+        self._out_dims = (value.shape[0],)
+        self._in_dims = (value.shape[1],)
+        self._value = value
+
+    @property
+    def out_dims(self) -> Tuple[int]:
+        return self._out_dims
+
+    @property
+    def in_dims(self) -> Tuple[int]:
+        return self._in_dims
+
+    @property
+    def value(self):
+        return self._value
+
+class DenseQuadraticForm(SymmetricBilinearMap, ContractibleTensor):
+    """Symmetric bilinear map represented with a rank-2 tensor"""
+
+    def __init__(self, value):
+        value = to_pytorch(value)
+        assert len(value.shape) == 2
+        assert value.shape[0] > 0
+        assert value.shape[1] > 0
+        assert value.shape[0] == value.shape[1]
+        self._out_dims = ()
+        self._in_dims = (value.shape[1],)
+        self._value = value
+
+    @property
+    def out_dims(self) -> Tuple[int]:
+        return self._out_dims
+
+    @property
+    def in_dims(self) -> Tuple[int]:
+        return self._in_dims
+
+    @property
+    def value(self):
+        return self._value
+
 
 class DenseLinear(LinearMap, ContractibleTensor):
+    """Symmetric linear map represented with a rank-2 tensor"""
+
     def __init__(self, value):
         value = to_pytorch(value)
         assert len(value.shape) == 2
@@ -222,9 +282,8 @@ class LeastSquares(AtomicFunction):
         x = x.value
         return DenseScalar((x * x).sum() / 2)
 
-    @property
-    def d(self):
-        return DLeastSquares(dim=self._in_dims[0])
+    def d(self, order=1):
+        return DLeastSquares(dim=self._in_dims[0], order=order)
 
     @property
     def in_dims(self):
@@ -242,7 +301,7 @@ class LeastSquares(AtomicFunction):
 
 
 class DLeastSquares(AtomicFunction, LinearizedFunction):
-    """Derivatives of cross entropy"""
+    """Derivatives of LeastSquares"""
 
     def __init__(self, dim: int, order: int = 1):
         self._in_dims = (dim,)
@@ -256,15 +315,18 @@ class DLeastSquares(AtomicFunction, LinearizedFunction):
         if self.order == 1:
             return x.T
         elif self.order == 2:
-            return DenseLinear(torch.eye(n))
+            return DenseQuadraticForm(torch.eye(n))
         # three-dimensional identity tensor, does not exist in numpy
         elif self.order == 3:
             assert False, "TODO: wrap this into proper rank-3 tensor"
             # x = torch.einsum('ij,jk->ijk', torch.eye(n), torch.eye(n))
 
     @property
-    def d(self):
-        return DLeastSquares(self._in_dims[0], self.order + 1)
+    def d1(self):
+        return self.d(1)
+
+    def d(self, order=1):
+        return DLeastSquares(dim=self._in_dims[0], order=self.order + order)
 
     @property
     def in_dims(self):
@@ -289,8 +351,7 @@ class Identity(AtomicFunction):
     def __call__(self, x: Tensor):
         return x
 
-    @property
-    def d(self):
+    def d(self, order=1):
         return DIdentity(self._in_dims[0])
 
     @property
@@ -324,8 +385,15 @@ class DIdentity(AtomicFunction):
     def in_dims(self):
         return self._in_dims
 
-    def d(self):
-        return zero
+    @property
+    def d1(self):
+        return self.d(1)
+
+    def d(self, order=1):
+        if order == 1:
+            return One
+        elif order >= 2:
+            return Zero
 
     def __call__(self, x: DenseVector):
         assert self.order <= 2, "third and higher order derivatives not implemented"
@@ -354,9 +422,8 @@ class Relu(AtomicFunction):
         x = x.value
         return DenseVector(F.relu(x))
 
-    @property
-    def d(self):
-        return DRelu(self._in_dims[0])
+    def d(self, order=1):
+        return DRelu(self._in_dims[0], order=order)
 
     @property
     def in_dims(self):
@@ -389,12 +456,82 @@ class DRelu(AtomicFunction, LinearizedFunction):
     def in_dims(self):
         return self._in_dims
 
-    def d(self):
-        return zero
+    def d(self, order=1):
+        return Zero
 
     def __call__(self, x: Tensor) -> DenseLinear:
+        if self.order == 1:
+            x = x.value
+            return DenseLinear(torch.diag((x > torch.tensor(0)).float()))
+        assert False
+
+    def __matmul__(self, other):
+        if isinstance(other, AtomicFunction):
+            return MemoizedFunctionComposition([self, other])
+        else:
+            return NotImplemented
+
+
+class Sigmoid(AtomicFunction):
+    """One dimensional relu"""
+
+    def __init__(self, dim: int):
+        self._in_dims = (dim,)
+        self._out_dims = (dim,)
+
+    def __call__(self, x: Tensor):
         x = x.value
-        return DenseLinear(torch.diag((x > torch.tensor(0)).float()))
+        return DenseVector(torch.sigmoid(x))
+
+    def d(self, order=1):
+        return DSigmoid(self._in_dims[0], order=order)
+
+    @property
+    def in_dims(self):
+        return self._in_dims
+
+    @property
+    def out_dims(self):
+        return self._out_dims
+
+    def __matmul__(self, other):
+        if isinstance(other, AtomicFunction):
+            return MemoizedFunctionComposition([self, other])
+        else:
+            return NotImplemented
+
+
+class DSigmoid(AtomicFunction, LinearizedFunction):
+    """Derivatives of sigmoid"""
+
+    def __init__(self, dim: int, order: int = 1):
+        assert order >= 1
+        self._in_dims = (dim,)
+        self._out_dims = (dim,)
+        self.order = order
+
+    @property
+    def out_dims(self):
+        return self._out_dims
+
+    @property
+    def in_dims(self):
+        return self._in_dims
+
+    def d(self, order=1):
+        return DSigmoid(self._in_dims[0], order=self.order+order)
+
+    def __call__(self, x: Tensor) -> ContractibleTensor:
+        x = x.value
+        s = torch.sigmoid(x)
+        if self.order == 1:
+            return DenseLinear(torch.diag(s*(1-s)))
+        elif self.order == 2:
+            n = self._in_dims[0]
+            p = s*(1-s)*(1-2*s)
+            eye_3 = torch.einsum('ij, jk -> ijk', torch.eye(n), torch.eye(n))
+            diag_3_p = torch.einsum('ijk, k -> ijk', eye_3, p)
+            return DenseSymmetricBilinear(diag_3_p)
 
     def __matmul__(self, other):
         if isinstance(other, AtomicFunction):
@@ -543,9 +680,8 @@ class LinearLayer(AtomicFunction):
         self._in_dims = W.in_dims
         self.W = W
 
-    @property
-    def d(self):
-        return DLinearLayer(self.W)
+    def d(self, order=1):
+        return DLinearLayer(self.W, order=order)
 
     @property
     def out_dims(self) -> Tuple[int]:
@@ -573,8 +709,9 @@ class DLinearLayer(AtomicFunction, LinearizedFunction):
     def out_dims(self):
         return self.W.out_dims
 
-    def __init__(self, W: DenseLinear):
+    def __init__(self, W: DenseLinear, order=1):
         # for now, only support matrices
+        self.order = order
         assert len(W.in_idx()) == 1
         assert len(W.out_idx()) == 1
         self.W = W
@@ -582,8 +719,11 @@ class DLinearLayer(AtomicFunction, LinearizedFunction):
     def __call__(self, _unused_x: Tensor) -> DenseLinear:
         return self.W
 
-    def d(self):
-        return self
+    def d(self, order=1):
+        if order == 1:
+            return self
+        else:
+            return Zero
 
 # creator helper methods
 #    W = make_linear([[1, -2], [-3, 4]])

@@ -57,8 +57,12 @@ class Function(ABC):
 
 
 class AtomicFunction(Function):
+    @property
+    def d1(self):
+        return self.d(1)
+
     @abstractmethod
-    def d(self):
+    def d(self, order: int):
         pass
 
 
@@ -130,6 +134,18 @@ class LinearMap(Tensor, ABC):
         pass
 
 
+class SymmetricBilinearMap(Tensor, ABC):
+    """Symmetric bilinear map. Two sets of input indices with equal dimensions.
+    TODO(y): enforce this somehow"""
+
+    @abstractmethod
+    def out_dims(self) -> Tuple[int]:
+        pass
+
+    @abstractmethod
+    def in_dims(self) -> Tuple[int]:
+        pass
+
 class D_(Operator):
     """Differentiation of arbitrary order. IE D_(1) for derivative, D_(2) for Hessian"""
     order: int
@@ -150,8 +166,9 @@ class D_(Operator):
     # TODO(y): change to AtomicFunction return type
     def __call__(self, other: AtomicFunction) -> Callable[[], Any]:
         assert isinstance(other, AtomicFunction), "Can only differentiate atomic functions"
-        return other.d
+        return other.d(self.order)
         # implement derivative rules here
 
 
 D = D_(order=1)
+D2 = D@D

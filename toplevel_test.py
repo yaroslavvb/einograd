@@ -135,6 +135,26 @@ def test_unit_test_a():
     assert u.get_global_forward_flops() == 4
     u.check_equal(a5, 1250)
 
+    #  next steps
+    # call, "D" operator,
+
+
+def test_bilinear():
+    (W0, U0, x0, x, h1, h2, h3, h4) = _create_unit_test_a()
+    (W, nonlin, U, loss) = (h1, h2, h3, h4)
+    a1 = x
+    a2 = h1(a1)    # a_i gives input into i'th layer
+    a3 = h2(a2)
+
+    nonlin = Sigmoid(x0.shape[0])
+    print('d sigmoid', D(nonlin)(a2))
+    print('d2 sigmoid', D2(nonlin)(a2))
+    print(D2(nonlin).order)
+
+    u.check_close(nonlin(a2), [0.0474259, 0.993307])
+    u.check_close(D(nonlin)(a2), [[0.0451767, 0], [0, 0.00664806]])
+    u.check_close(D2(nonlin)(a2), [[[0.0408916, 0], [0, 0]], [[0, 0], [0, -0.00655907]]])
+
 
 def test_einsum():
     W0 = u.to_pytorch([[1, -2], [-3, 4]])
@@ -153,7 +173,7 @@ def test_einsum():
 
 def test_relu():
     f = Relu(2)
-    df = f.d  # also try D(f)
+    df = f.d1  # also try D(f)
     # TODO(y): arguments to functions don't have Tensor semantics, so change type
     result = df(DenseVector([-3, 5]))
     u.check_equal(result, [[0, 0], [0, 1]])
@@ -272,6 +292,7 @@ if __name__ == '__main__':
     test_dense()
     test_relu()
     test_unit_test_a()
+    test_bilinear()
     # test_unit_test_A()
     sys.exit()
     # noinspection PyTypeChecker,PyUnreachableCode

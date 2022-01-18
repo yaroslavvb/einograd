@@ -23,6 +23,12 @@ class LeastSquaresLoss(nn.Module):
         return torch.sum(err * err) / 2
 
 
+def check_close(observed, truth, rtol=1e-5, atol=1e-8, label: str = '') -> None:
+    """Convenience method for check_equal with tolerances defaulting to typical errors observed in neural network
+    ops in float32 precision."""
+    return check_equal(observed, truth, rtol=rtol, atol=atol, label=label)
+
+
 def check_equal(observed, truth, rtol=1e-9, atol=1e-12, label: str = '') -> None:
     """
     Assert fail any entries in two arrays are not close to each to desired tolerance. See np.allclose for meaning of rtol, atol
