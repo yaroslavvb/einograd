@@ -34,6 +34,25 @@ def test_dense():
     u.check_equal(dW(zero) * x, W0 @ x0)
 
 
+def test_contract():
+    W0 = u.to_pytorch([[1, -2], [-3, 4]])
+    U0 = u.to_pytorch([[5, -6], [-7, 8]])
+    W = DenseLinear(W0)
+    U = DenseLinear(U0)
+    x0 = u.to_pytorch([1, 2])
+    x = DenseVector(x0)
+    y = DenseCovector(x0)
+
+    u.check_equal(W * U, W0 @ U0)
+    assert isinstance(W * U, LinearMap)
+    u.check_equal(W * x, [-3, 5])
+    assert isinstance(W * x, Vector)
+    u.check_equal(y * W, [-5, 6])
+    assert isinstance(y * W, Covector)
+    u.check_equal(y * x, 5)
+    assert isinstance(y * x, Scalar)
+
+
 def test_unit_test_a():
     W0 = u.to_pytorch([[1, -2], [-3, 4]])
     U0 = u.to_pytorch([[5, -6], [-7, 8]])
@@ -42,7 +61,7 @@ def test_unit_test_a():
     W = LinearLayer(W0)
     U = LinearLayer(U0)
     nonlin = Relu(x0.shape[0])
-    loss = CrossEntropy(x0.shape[0])
+    loss = LeastSquares(x0.shape[0])
     x = DenseVector(x0)
 
     (h1, h2, h3, h4) = (W, nonlin, U, loss)
@@ -50,18 +69,25 @@ def test_unit_test_a():
     f = MemoizedFunctionComposition([h4, h3, h2, h1])
     h = [None, f[3], f[2], f[1], f[0]]  # h[1] shorthand for h1, linked to a parent Composition
     assert type(h[1]) == LinearLayer
-    assert type(h[4]) == CrossEntropy
+    assert type(h[4]) == LeastSquares
 
     a1 = x
-    a2 = h1(a1)    # ai gives input into i'th layer
+    a2 = h1(a1)    # a_i gives input into i'th layer
     a3 = h2(a2)
     a4 = h3(a3)
     a5 = h4(a4)
     u.check_equal(a1, [1, 2])
     u.check_equal(a2, [-3, 5])
-    #u.check_equal(a3, [0, 5])
-    #u.check_equal(a4, [-30, 40])
-    #u.check_equal(a5, 1250)
+    u.check_equal(a3, [0, 5])
+    u.check_equal(a4, [-30, 40])
+    u.check_equal(a5, 1250)
+
+    # check per-layer Jacobians
+    dh1, dh2, dh3, dh4 = D(h1), D(h2), D(h3), D(h4)
+
+    print(dh1(a1) * dh2(a2))
+    u.check_equal(dh1(a1), [[0, 0], [500, 1000]])
+    u.check_equal(dh3(a3), [[0, 0], [500, 1000]])
 
     # D(f)   # this is numerically equivalent to D(U) @ W * D(W)
     # slow = D(U) @ W * D(W)
@@ -203,6 +229,8 @@ def test_present1():
 
 
 if __name__ == '__main__':
+    test_contract()
+    sys.exit()
     test_dense()
     test_relu()
     test_unit_test_a()

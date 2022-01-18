@@ -4,19 +4,216 @@ from util import *
 
 import torch.nn.functional as F
 
-class CrossEntropy(AtomicFunction):
-    """cross entropy"""
+
+_idx0 = 'a'
+
+class ContractibleTensor(Tensor, ABC):
+    """
+    Tensor is split into 2, abstract API is in Tensor, reusable implementation details are in
+    ContractibleTensor
+    """
+
+    @property
+    def out_dims(self) -> Tuple[int]:
+        return 42,
+
+    @property
+    def in_dims(self) -> Tuple[int]:
+        return 42,
+
+    def out_idx(self):
+        upper = ''
+        offset = 0
+        # TODO(y): Covector does not have out_dims defined, test what happens
+        # TODO(y): replace out_dims with property call
+        if hasattr(self, 'out_dims'):
+            upper = ''.join(chr(ord(_idx0) + offset + i) for i in range(len(self.out_dims)))
+        return upper
+
+    def in_idx(self):
+        # TODO(y) replace with properties
+        lower = ''
+        offset = 0
+        if hasattr(self, 'in_dims'):
+            lower = ''.join(chr(ord(_idx0) + offset + i) for i in range(len(self.in_dims)))
+        return lower
+
+    def all_idx(self, offset=0):
+        """Generate string corresponding to upper,lower indices, with offset.
+        IE for tensor with 2 upper indices 'ab' and 1 lower index 'c'
+        IE, offset 0: "abc"
+            offset 1: "bcd", etc"""
+
+        upper, lower = '', ''
+        if hasattr(self, 'out_dims'):
+            upper = ''.join(chr(ord(_idx0) + offset + i) for i in range(len(self.out_dims)))
+
+        offset += len(upper)
+        if hasattr(self, 'in_dims'):
+            lower = ''.join(chr(ord(_idx0) + offset + i) for i in range(len(self.in_dims)))
+        return upper + lower, upper, lower
+
+    def __mul__(self, other):
+        print('other is ', other)
+        assert isinstance(other, ContractibleTensor), f"contracting tensor with {type(other)}"
+
+        t1 = self
+        t2 = other
+
+        # assert isinstance(t1, DenseLinear) and isinstance(t2, DenseVector), "contraction tested only for matrix@vector "
+        # return self.W * x
+
+        assert t1.in_dims == t2.out_dims  # ij,j -> i
+        (t1_idx, t1_idx_out, t1_idx_in) = t1.all_idx()
+        (t2_idx, t2_idx_out, t2_idx_in) = t2.all_idx(offset=len(t1.out_idx()))
+
+        t1_set = set(t1_idx)
+        t2_set = set(t2_idx)
+        contracted_set = t1_set.intersection(t2_set)
+        result_set = t1_set.union(t2_set).difference(contracted_set)
+        result_idx = ''.join(sorted(list(result_set)))
+
+        einsum_str = f"{t1_idx},{t2_idx}->{result_idx}"
+        print('doing einsum ', einsum_str)
+        print('tensor 1', t1.value)
+        print('tensor 2', t2.value)
+        data = torch.einsum(einsum_str, t1.value, t2.value)
+
+        # figure out new input, output indices, create corresponding object
+        out_idx = result_set.intersection(set(t1_idx_out + t2_idx_out))
+        in_idx = result_set.intersection(set(t1_idx_in + t2_idx_in))
+        if out_idx and not in_idx:
+            assert len(out_idx) == 1, "don't support multi-index yet"
+            return DenseVector(data)
+        elif in_idx and not out_idx:
+            assert len(in_idx) == 1, "don't support multi-index yet"
+            return DenseCovector(data)
+        elif in_idx and out_idx:
+            assert len(in_idx) == len(out_idx) == 1, "don't support multi-index yet"
+            return DenseLinear(data)
+        elif not in_idx and not out_idx:
+            assert data.shape == ()
+            return DenseScalar(data)
+
+
+
+
+
+
+class ZeroTensor(Tensor):
+    """Arbitrary shape tensor of zeros"""
+    def in_dims(self):
+        return ()
+
+    def out_dims(self):
+        return ()
+
+zero = ZeroTensor()
+
+
+class DenseScalar(Scalar):
+    def __init__(self, value):
+        value = to_pytorch(value)
+        assert len(value.shape) == 0
+        self._value = value
+
+    @property
+    def in_dims(self):
+        return ()
+
+    @property
+    def out_dims(self):
+        return ()
+
+    @property
+    def value(self):
+        return self._value
+
+class DenseVector(Vector, ContractibleTensor):
+    _value: torch.Tensor
+    _out_dims: Tuple[int]
+
+    def __init__(self, value):
+        value = to_pytorch(value)
+        assert len(value.shape) == 1
+        assert value.shape[0] > 0
+        self._out_dims = value.shape
+        self._value = value
+
+    @property
+    def in_dims(self):
+        return ()
+
+    @property
+    def out_dims(self):
+        return self._out_dims
+
+    @property
+    def value(self):
+        return self._value
+
+
+class DenseCovector(Covector, ContractibleTensor):
+    _value: torch.Tensor
+    _in_dims: Tuple[int]
+
+    def __init__(self, value):
+        value = to_pytorch(value)
+        assert len(value.shape) == 1
+        assert value.shape[0] > 0
+        self._in_dims = value.shape
+        self._value = value
+
+    @property
+    def in_dims(self):
+        return self._in_dims
+
+    @property
+    def out_dims(self):
+        return ()
+
+    @property
+    def value(self):
+        return self._value
+
+
+class DenseLinear(LinearMap, ContractibleTensor):
+    def __init__(self, value):
+        value = to_pytorch(value)
+        assert len(value.shape) == 2
+        assert value.shape[0] > 0
+        assert value.shape[1] > 0
+        self._out_dims = (value.shape[0],)
+        self._in_dims = (value.shape[1],)
+        self._value = value
+
+    @property
+    def out_dims(self) -> Tuple[int]:
+        return self._out_dims
+
+    @property
+    def in_dims(self) -> Tuple[int]:
+        return self._in_dims
+
+    @property
+    def value(self):
+        return self._value
+
+
+class LeastSquares(AtomicFunction):
+    """Least squares loss"""
 
     def __init__(self, dim: int):
         self._in_dims = (dim,)
         self._out_dims = ()
 
     def __call__(self, x: Tensor):
-        return x
+        x = x.value
+        return DenseScalar((x * x).sum()/2)
 
     @property
     def d(self):
-        return DCrossEntropy(dim=self._in_dims[0])
+        return DLeastSquares(dim=self._in_dims[0])
 
     @property
     def in_dims(self):
@@ -33,8 +230,7 @@ class CrossEntropy(AtomicFunction):
             return NotImplemented
 
 
-# TODO(y), this is not a linear function
-class DCrossEntropy(AtomicFunction, LinearizedFunction):
+class DLeastSquares(AtomicFunction, LinearizedFunction):
     """Derivatives of cross entropy"""
 
     def __init__(self, dim: int, order: int = 1):
@@ -42,12 +238,22 @@ class DCrossEntropy(AtomicFunction, LinearizedFunction):
         self._out_dims = ()
         self.order = order
 
-    def __call__(self, x: Tensor):
-        return x
+    def __call__(self, x: DenseVector):
+        assert self.order <= 2, "third and higher order derivatives not implemented"
+        n = self._in_dims[0]
+
+        if self.order == 1:
+            return x
+        elif self.order == 2:
+            return DenseLinear(torch.eye(n))
+        # three-dimensional identity tensor, does not exist in numpy
+        elif self.order == 3:
+            x = torch.einsum('ij,jk->ijk', torch.eye(n), torch.eye(n))
+            assert False, "TODO: wrap this into proper rank-3 tensor"
 
     @property
     def d(self):
-        return DCrossEntropy(self._in_dims[0], self.order + 1)
+        return DLeastSquares(self._in_dims[0], self.order + 1)
 
     @property
     def in_dims(self):
@@ -113,9 +319,9 @@ class DRelu(AtomicFunction, LinearizedFunction):
     def d(self):
         return zero
 
-    def __call__(self, x: Tensor):
+    def __call__(self, x: Tensor) -> DenseLinear:
         x = x.value
-        return torch.diag((x > torch.tensor(0)).float())
+        return DenseLinear(torch.diag((x > torch.tensor(0)).float()))
 
     def __matmul__(self, other):
         if isinstance(other, AtomicFunction):
@@ -141,161 +347,6 @@ class DRelu(AtomicFunction, LinearizedFunction):
 #         # data = torch.einsum(einsum_str, self.data, x.data)
 #         # return DenseVector(data)
 
-
-_idx0 = 'a'
-
-
-class ContractibleTensor(Tensor, ABC):
-    """
-    Tensor is split into 2, abstract API is in Tensor, reusable implementation details are in
-    ContractibleTensor
-    """
-
-    @property
-    def out_dims(self) -> Tuple[int]:
-        return 42,
-
-    @property
-    def in_dims(self) -> Tuple[int]:
-        return 42,
-
-    def out_idx(self):
-        upper = ''
-        offset = 0
-        # TODO(y): Covector does not have out_dims defined, test what happens
-        # TODO(y): replace out_dims with property call
-        if hasattr(self, 'out_dims'):
-            upper = ''.join(chr(ord(_idx0) + offset + i) for i in range(len(self.out_dims)))
-        return upper
-
-    def in_idx(self):
-        # TODO(y) replace with properties
-        lower = ''
-        offset = 0
-        if hasattr(self, 'in_dims'):
-            lower = ''.join(chr(ord(_idx0) + offset + i) for i in range(len(self.in_dims)))
-        return lower
-
-    def all_idx(self, offset=0):
-        """Generate string corresponding to upper,lower indices, with offset.
-        IE for tensor with 2 upper indices 'ab' and 1 lower index 'c'
-        IE, offset 0: "abc"
-            offset 1: "bcd", etc"""
-
-        upper, lower = '', ''
-        if hasattr(self, 'out_dims'):
-            upper = ''.join(chr(ord(_idx0) + offset + i) for i in range(len(self.out_dims)))
-
-        offset += len(upper)
-        if hasattr(self, 'in_dims'):
-            lower = ''.join(chr(ord(_idx0) + offset + i) for i in range(len(self.in_dims)))
-        return upper + lower
-
-    def __mul__(self, other):
-        print('other is ', other)
-        assert isinstance(other, ContractibleTensor), f"contracting tensor with {type(other)}"
-
-        t1 = self
-        t2 = other
-        assert isinstance(t1, DenseLinear) and isinstance(t2, DenseVector), "contraction tested only for matrix@vector "
-        # return self.W * x
-
-        assert t1.in_dims == t2.out_dims  # ij,j -> i
-        t1_idx = t1.all_idx()
-        t2_idx = t2.all_idx(offset=len(t1.out_idx()))
-
-        t1_set = set(t1_idx)
-        t2_set = set(t2_idx)
-        contracted_set = t1_set.intersection(t2_set)
-        out_set = t1_set.union(t2_set).difference(contracted_set)
-        out_idx = ''.join(sorted(list(out_set)))
-
-        einsum_str = f"{t1_idx},{t2_idx}->{out_idx}"
-        print('doing einsum ', einsum_str)
-        print('tensor 1', t1.value)
-        print('tensor 2', t2.value)
-        data = torch.einsum(einsum_str, t1.value, t2.value)
-        return DenseVector(data)
-
-
-class ZeroTensor(Tensor):
-    def in_dims(self):
-        return ()
-
-    def out_dims(self):
-        return ()
-
-zero = ZeroTensor()
-
-
-class DenseVector(Vector, ContractibleTensor):
-    _value: torch.Tensor
-    _out_dims: Tuple[int]
-
-    def __init__(self, value):
-        value = to_pytorch(value)
-        assert len(value.shape) == 1
-        assert value.shape[0] > 0
-        self._out_dims = value.shape
-        self._value = value
-
-    @property
-    def in_dims(self):
-        return ()
-
-    @property
-    def out_dims(self):
-        return self._out_dims
-
-    @property
-    def value(self):
-        return self._value
-
-
-class DenseCovector(Covector, ContractibleTensor):
-    _value: torch.Tensor
-    _in_dims: Tuple[int]
-
-    def __init__(self, value):
-        value = to_pytorch(value)
-        assert len(value.shape) == 1
-        assert value.shape[0] > 0
-        self._in_dims = value.shape
-        self._value = value
-
-    @property
-    def in_dims(self):
-        return self._in_dims
-
-    def out_dims(self):
-        return ()
-
-    @property
-    def value(self):
-        return self._value
-
-
-class DenseLinear(LinearMapTensor, ContractibleTensor):
-    def __init__(self, value):
-        value = to_pytorch(value)
-        assert len(value.shape) == 2
-        assert value.shape[0] > 0
-        assert value.shape[1] > 0
-        self._out_dims = (value.shape[0],)
-        self._in_dims = (value.shape[1],)
-        self._value = value
-
-    @property
-    def out_dims(self) -> Tuple[int]:
-        return self._out_dims
-
-    @property
-    def in_dims(self) -> Tuple[int]:
-        return self._in_dims
-
-    @property
-    def value(self):
-        return self._value
 
 
 #    TODO(y): maybe also implement Function interface?
@@ -375,7 +426,7 @@ class LinearLayer(AtomicFunction):
     def in_dims(self) -> Tuple[int]:
         return self._in_dims
 
-    def __call__(self, x: Vector):
+    def __call__(self, x: Vector) -> DenseVector:
         result = self.W * x
         assert isinstance(result, DenseVector)
         return result
@@ -384,7 +435,7 @@ class LinearLayer(AtomicFunction):
 class DLinearLayer(AtomicFunction, LinearizedFunction):
     """derivative of Dense Linear Layer"""
 
-    W: ContractibleTensor
+    W: DenseLinear
 
     def in_dims(self):
         return self.W.in_dims
@@ -398,7 +449,7 @@ class DLinearLayer(AtomicFunction, LinearizedFunction):
         assert len(W.out_idx()) == 1
         self.W = W
 
-    def __call__(self, _unused_x: Tensor):
+    def __call__(self, _unused_x: Tensor) -> DenseLinear:
         return self.W
 
     def d(self):

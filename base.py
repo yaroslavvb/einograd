@@ -92,6 +92,16 @@ class Tensor(ABC):
         pass
 
 
+class Scalar(Tensor, ABC):
+    """Scalar, empty output and input indices"""
+
+    def out_dims(self):
+        return ()
+
+    def in_dims(self):
+        return ()
+
+
 class Vector(Tensor, ABC):
     """pure contravariant Tensor, upper (output) indices only"""
 
@@ -108,7 +118,7 @@ class Covector(Tensor, ABC):
         pass
 
 
-class LinearMapTensor(Tensor, ABC):
+class LinearMap(Tensor, ABC):
     """mixed Tensor, one set of upper and one set of lower"""
 
     @abstractmethod
