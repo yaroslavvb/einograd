@@ -1,0 +1,419 @@
+from base import *
+
+from util import *
+
+import torch.nn.functional as F
+
+class CrossEntropy(AtomicFunction):
+    """cross entropy"""
+
+    def __init__(self, dim: int):
+        self._in_dims = (dim,)
+        self._out_dims = ()
+
+    def __call__(self, x: Tensor):
+        return x
+
+    @property
+    def d(self):
+        return DCrossEntropy(dim=self._in_dims[0])
+
+    @property
+    def in_dims(self):
+        return self._in_dims
+
+    @property
+    def out_dims(self):
+        return self._out_dims
+
+    def __matmul__(self, other):
+        if isinstance(other, AtomicFunction):
+            return MemoizedFunctionComposition([self, other])
+        else:
+            return NotImplemented
+
+
+# TODO(y), this is not a linear function
+class DCrossEntropy(AtomicFunction, LinearizedFunction):
+    """Derivatives of cross entropy"""
+
+    def __init__(self, dim: int, order: int = 1):
+        self._in_dims = (dim,)
+        self._out_dims = ()
+        self.order = order
+
+    def __call__(self, x: Tensor):
+        return x
+
+    @property
+    def d(self):
+        return DCrossEntropy(self._in_dims[0], self.order + 1)
+
+    @property
+    def in_dims(self):
+        return self._in_dims
+
+    @property
+    def out_dims(self):
+        return self._out_dims
+
+    def __matmul__(self, other):
+        if isinstance(other, AtomicFunction):
+            return MemoizedFunctionComposition([self, other])
+        else:
+            return NotImplemented
+
+
+class Relu(AtomicFunction):
+    """One dimensional relu"""
+
+    def __init__(self, dim: int):
+        self._in_dims = (dim,)
+        self._out_dims = (dim,)
+
+    def __call__(self, x: Tensor):
+        x = x.value
+        return DenseVector(F.relu(x))
+
+    @property
+    def d(self):
+        return DRelu(self._in_dims[0])
+
+    @property
+    def in_dims(self):
+        return self._in_dims
+
+    @property
+    def out_dims(self):
+        return self._out_dims
+
+    def __matmul__(self, other):
+        if isinstance(other, AtomicFunction):
+            return MemoizedFunctionComposition([self, other])
+        else:
+            return NotImplemented
+
+
+class DRelu(AtomicFunction, LinearizedFunction):
+    """Derivatives of relu"""
+
+    def __init__(self, dim: int, order: int = 1):
+        self._in_dims = (dim,)
+        self._out_dims = (dim,)
+        self.order = order
+
+    @property
+    def out_dims(self):
+        return self._out_dims
+
+    @property
+    def in_dims(self):
+        return self._in_dims
+
+    def d(self):
+        return zero
+
+    def __call__(self, x: Tensor):
+        x = x.value
+        return torch.diag((x > torch.tensor(0)).float())
+
+    def __matmul__(self, other):
+        if isinstance(other, AtomicFunction):
+            return MemoizedFunctionComposition([self, other])
+        else:
+            return NotImplemented
+
+
+# class ContractibleTensor:
+#     """Including this operation implements * contraction"""
+#
+#     def __mul__(self, other):
+#         """Contraction operation"""
+#         assert isinstance(other, ContractibleTensor)
+#
+#         # assert isinstance(x, DenseVector)
+#         # assert self.in_dims == x.out_dims
+#         # in1_idx = self.all_idx()
+#         # in2_idx = x.all_idx(offset=len(self.in_idx()))
+#         # out_idx = self.out_idx()
+#         # einsum_str = f"{in1_idx},{in2_idx}->{out_idx}"
+#         # print('doing einsum ', einsum_str)
+#         # data = torch.einsum(einsum_str, self.data, x.data)
+#         # return DenseVector(data)
+
+
+_idx0 = 'a'
+
+
+class ContractibleTensor(Tensor, ABC):
+    """
+    Tensor is split into 2, abstract API is in Tensor, reusable implementation details are in
+    ContractibleTensor
+    """
+
+    @property
+    def out_dims(self) -> Tuple[int]:
+        return 42,
+
+    @property
+    def in_dims(self) -> Tuple[int]:
+        return 42,
+
+    def out_idx(self):
+        upper = ''
+        offset = 0
+        # TODO(y): Covector does not have out_dims defined, test what happens
+        # TODO(y): replace out_dims with property call
+        if hasattr(self, 'out_dims'):
+            upper = ''.join(chr(ord(_idx0) + offset + i) for i in range(len(self.out_dims)))
+        return upper
+
+    def in_idx(self):
+        # TODO(y) replace with properties
+        lower = ''
+        offset = 0
+        if hasattr(self, 'in_dims'):
+            lower = ''.join(chr(ord(_idx0) + offset + i) for i in range(len(self.in_dims)))
+        return lower
+
+    def all_idx(self, offset=0):
+        """Generate string corresponding to upper,lower indices, with offset.
+        IE for tensor with 2 upper indices 'ab' and 1 lower index 'c'
+        IE, offset 0: "abc"
+            offset 1: "bcd", etc"""
+
+        upper, lower = '', ''
+        if hasattr(self, 'out_dims'):
+            upper = ''.join(chr(ord(_idx0) + offset + i) for i in range(len(self.out_dims)))
+
+        offset += len(upper)
+        if hasattr(self, 'in_dims'):
+            lower = ''.join(chr(ord(_idx0) + offset + i) for i in range(len(self.in_dims)))
+        return upper + lower
+
+    def __mul__(self, other):
+        print('other is ', other)
+        assert isinstance(other, ContractibleTensor), f"contracting tensor with {type(other)}"
+
+        t1 = self
+        t2 = other
+        assert isinstance(t1, DenseLinear) and isinstance(t2, DenseVector), "contraction tested only for matrix@vector "
+        # return self.W * x
+
+        assert t1.in_dims == t2.out_dims  # ij,j -> i
+        t1_idx = t1.all_idx()
+        t2_idx = t2.all_idx(offset=len(t1.out_idx()))
+
+        t1_set = set(t1_idx)
+        t2_set = set(t2_idx)
+        contracted_set = t1_set.intersection(t2_set)
+        out_set = t1_set.union(t2_set).difference(contracted_set)
+        out_idx = ''.join(sorted(list(out_set)))
+
+        einsum_str = f"{t1_idx},{t2_idx}->{out_idx}"
+        print('doing einsum ', einsum_str)
+        print('tensor 1', t1.value)
+        print('tensor 2', t2.value)
+        data = torch.einsum(einsum_str, t1.value, t2.value)
+        return DenseVector(data)
+
+
+class ZeroTensor(Tensor):
+    def in_dims(self):
+        return ()
+
+    def out_dims(self):
+        return ()
+
+zero = ZeroTensor()
+
+
+class DenseVector(Vector, ContractibleTensor):
+    _value: torch.Tensor
+    _out_dims: Tuple[int]
+
+    def __init__(self, value):
+        value = to_pytorch(value)
+        assert len(value.shape) == 1
+        assert value.shape[0] > 0
+        self._out_dims = value.shape
+        self._value = value
+
+    @property
+    def in_dims(self):
+        return ()
+
+    @property
+    def out_dims(self):
+        return self._out_dims
+
+    @property
+    def value(self):
+        return self._value
+
+
+class DenseCovector(Covector, ContractibleTensor):
+    _value: torch.Tensor
+    _in_dims: Tuple[int]
+
+    def __init__(self, value):
+        value = to_pytorch(value)
+        assert len(value.shape) == 1
+        assert value.shape[0] > 0
+        self._in_dims = value.shape
+        self._value = value
+
+    @property
+    def in_dims(self):
+        return self._in_dims
+
+    def out_dims(self):
+        return ()
+
+    @property
+    def value(self):
+        return self._value
+
+
+class DenseLinear(LinearMapTensor, ContractibleTensor):
+    def __init__(self, value):
+        value = to_pytorch(value)
+        assert len(value.shape) == 2
+        assert value.shape[0] > 0
+        assert value.shape[1] > 0
+        self._out_dims = (value.shape[0],)
+        self._in_dims = (value.shape[1],)
+        self._value = value
+
+    @property
+    def out_dims(self) -> Tuple[int]:
+        return self._out_dims
+
+    @property
+    def in_dims(self) -> Tuple[int]:
+        return self._in_dims
+
+    @property
+    def value(self):
+        return self._value
+
+
+#    TODO(y): maybe also implement Function interface?
+class MemoizedFunctionComposition:
+    """Represents a composition of functions with memoization
+    Unbound call, ie f@g@h, can be used as intermediate result for constructing a composition
+    Bound call, ie (f@g@h)(x), at this point it is frozen and can't be modified.
+    """
+
+    children: List[Any]    # List[Function] fix: forward references
+    # parent               # FunctionComposition type, multiple Compositions point here. fix: forward reference
+    arg: Any
+
+    def __init__(self, children, parent=None):
+        self.arg = None
+        self.parent = parent
+        self.children = children
+        for child in children:
+            if hasattr(child, 'parent') and child.parent is not None:
+                assert False
+                print(f"Warning, Node {child} already has parent {child.parent}, reuse the same function object in "
+                      f"multiple places in tree may break memoization.")
+            child.parent = self
+
+    def __matmul__(self, other):
+        assert self.arg is None, "Can't combine compositions with bound parameters"
+        if isinstance(other, Function):
+            return MemoizedFunctionComposition(self.children + [other])
+        else:
+            return NotImplemented
+
+    # only allow simple slicing
+    def __getitem__(self, s):
+        if isinstance(s, slice):
+            if isinstance(s.step, int):
+                assert s.step == 1
+            error_msg = "this case hasn't been tested, for now only single level of parent  redirection is allowed"
+            assert self.parent is None, error_msg
+            backlink = self if self.parent is None else self.parent
+            return MemoizedFunctionComposition(self.children[s.start:s.stop], backlink)
+        else:
+            assert isinstance(s, int)
+            return self.children[s]
+
+    def __call__(self, val):
+        assert self.arg is None, "argument is already bound"
+        assert val is not None
+        self.arg = val
+
+
+class LinearLayer(AtomicFunction):
+    """Dense Linear Layer"""
+
+    _out_dims: Tuple[int]
+    _in_dims: Tuple[int]
+    W: ContractibleTensor
+
+    def __init__(self, W):
+        W = to_pytorch(W)
+        assert len(W.shape) == 2
+        assert W.shape[0] >= 1
+        assert W.shape[1] >= 1
+        W = DenseLinear(W)
+        self._out_dims = W.out_dims
+        self._in_dims = W.in_dims
+        self.W = W
+
+    @property
+    def d(self):
+        return DLinearLayer(self.W)
+
+    @property
+    def out_dims(self) -> Tuple[int]:
+        return self._out_dims
+
+    @property
+    def in_dims(self) -> Tuple[int]:
+        return self._in_dims
+
+    def __call__(self, x: Vector):
+        result = self.W * x
+        assert isinstance(result, DenseVector)
+        return result
+
+
+class DLinearLayer(AtomicFunction, LinearizedFunction):
+    """derivative of Dense Linear Layer"""
+
+    W: ContractibleTensor
+
+    def in_dims(self):
+        return self.W.in_dims
+
+    def out_dims(self):
+        return self.W.out_dims
+
+    def __init__(self, W: ContractibleTensor):
+        # for now, only support matrices
+        assert len(W.in_idx()) == 1
+        assert len(W.out_idx()) == 1
+        self.W = W
+
+    def __call__(self, _unused_x: Tensor):
+        return self.W
+
+    def d(self):
+        return self
+
+# creator helper methods
+#    W = make_linear([[1, -2], [-3, 4]])
+#    U = make_linear([[5, -6], [-7, 8]])
+#    x0 = make_vector([1, 2])
+#    nonlin = make_sigmoid(x0)
+#    loss = make_xent(x0)   # x0 used for shape inference
+
+# def make_linear(mat):
+#    mat = to_pytorch(mat)
+#    d1, d2 = mat.shape
+#    layer = nn.Linear(d1, d2, bias=False)
+#    layer.weight.data = mat
+#    return layer
