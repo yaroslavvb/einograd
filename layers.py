@@ -220,7 +220,7 @@ class DenseSymmetricBilinear(SymmetricBilinearMap, ContractibleTensor):
     def value(self):
         return self._value
 
-class DenseQuadraticForm(SymmetricBilinearMap, ContractibleTensor):
+class DenseQuadraticForm(QuadraticForm, ContractibleTensor):
     """Symmetric bilinear map represented with a rank-2 tensor"""
 
     def __init__(self, value):

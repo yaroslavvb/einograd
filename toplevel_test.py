@@ -139,7 +139,7 @@ def test_unit_test_a():
     # call, "D" operator,
 
 
-def test_bilinear():
+def test_sigmoid():
     (W0, U0, x0, x, h1, h2, h3, h4) = _create_unit_test_a()
     (W, nonlin, U, loss) = (h1, h2, h3, h4)
     a1 = x
@@ -155,6 +155,34 @@ def test_bilinear():
     u.check_close(D(nonlin)(a2), [[0.0451767, 0], [0, 0.00664806]])
     u.check_close(D2(nonlin)(a2), [[[0.0408916, 0], [0, 0]], [[0, 0], [0, -0.00655907]]])
 
+    assert isinstance(D2(nonlin)(a2), SymmetricBilinearMap)
+
+
+def test_relu():
+    f = Relu(2)
+    df = f.d1  # also try D(f)
+    # TODO(y): arguments to functions don't have Tensor semantics, so change type
+    result = df(DenseVector([-3, 5]))
+    u.check_equal(result, [[0, 0], [0, 1]])
+
+    df = D(f)
+    result = df(DenseVector([-3, 5]))
+    u.check_equal(result, [[0, 0], [0, 1]])
+
+
+def test_least_squares():
+    (W0, U0, x0, x, h1, h2, h3, h4) = _create_unit_test_a()
+    (W, nonlin, U, loss) = (h1, h2, h3, h4)
+    a1 = x
+    a2 = h1(a1)    # a_i gives input into i'th layer
+    a3 = h2(a2)
+    a4 = h3(a3)
+    a5 = h4(a4)
+
+    assert isinstance(D(h4)(a4), DenseCovector)
+    assert isinstance(D2(h4)(a4), DenseQuadraticForm)
+    u.check_equal(D(h4)(a4), a4)
+    u.check_equal(D2(h4)(a4), torch.eye(2))
 
 def test_einsum():
     W0 = u.to_pytorch([[1, -2], [-3, 4]])
@@ -170,17 +198,6 @@ def test_einsum():
     # dnonlin = DSigmoid(x0.shape[0])
     # dnonlin.lazy_call(x0)
 
-
-def test_relu():
-    f = Relu(2)
-    df = f.d1  # also try D(f)
-    # TODO(y): arguments to functions don't have Tensor semantics, so change type
-    result = df(DenseVector([-3, 5]))
-    u.check_equal(result, [[0, 0], [0, 1]])
-
-    df = D(f)
-    result = df(DenseVector([-3, 5]))
-    u.check_equal(result, [[0, 0], [0, 1]])
 
 
 """
@@ -292,7 +309,8 @@ if __name__ == '__main__':
     test_dense()
     test_relu()
     test_unit_test_a()
-    test_bilinear()
+    test_sigmoid()
+    test_least_squares()
     # test_unit_test_A()
     sys.exit()
     # noinspection PyTypeChecker,PyUnreachableCode

@@ -134,6 +134,17 @@ class LinearMap(Tensor, ABC):
         pass
 
 
+class QuadraticForm(Tensor, ABC):
+    # this must return ()
+    @abstractmethod
+    def out_dims(self) -> Tuple[int]:
+        pass
+
+    @abstractmethod
+    def in_dims(self) -> Tuple[int]:
+        pass
+
+
 class SymmetricBilinearMap(Tensor, ABC):
     """Symmetric bilinear map. Two sets of input indices with equal dimensions.
     TODO(y): enforce this somehow"""
