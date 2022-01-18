@@ -121,12 +121,19 @@ def test_unit_test_a():
     # result = f(x)
     a2 = f[3:](x)   # input into h2
     assert u.get_global_forward_flops() == 1
+    u.check_equal(a2, [-3, 5])
 
-    # D(f)   # this is numerically equivalent to D(U) @ W * D(W)
-    # slow = D(U) @ W * D(W)
-    # fast = D(f) @ f[1:] * D(f[1])
-    # print(slow(x0).forward_flops)  # high
-    # print(fast(x0).forward_flops)   # low
+    a4 = f[1:](x)  #
+    assert u.get_global_forward_flops() == 3
+    u.check_equal(a4, [-30, 40])
+
+    a5 = f[:](x)  #
+    assert u.get_global_forward_flops() == 4
+    u.check_equal(a5, 1250)
+
+    a5 = f[0:](x)  #
+    assert u.get_global_forward_flops() == 4
+    u.check_equal(a5, 1250)
 
 
 def test_einsum():

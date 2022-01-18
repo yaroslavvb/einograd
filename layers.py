@@ -465,7 +465,8 @@ class MemoizedFunctionComposition:
             assert self.parent is None, error_msg
             backlink = self if self.parent is None else self.parent
             assert s.stop is None
-            assert len(self.children[s.start:]) > 0
+            assert len(self.children[s.start:]) > 0, f"only have {len(self.children)} members of composition, " \
+                                                     f"attempted to start at {s.start} "
             return MemoizedFunctionComposition(self.children[s.start:], backlink)
         else:
             assert False, "use [:] slicing as [i] is ambiguous"
