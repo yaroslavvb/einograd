@@ -438,12 +438,16 @@ class MemoizedFunctionComposition:
         self.children = children
         self._saved_outputs = [None] * (len(children) + 1)
 
+        print('initializing with ', children, parent)
+        # if creating a sub-composition, extra sanity check that the nodes we are using
+        # are already pointing to the parent composition
         for child in children:
-            if hasattr(child, 'parent') and child.parent is not None:
-                assert False, f"Warning, Node {child} already has parent {child.parent}"
-                # print(f"Warning, Node {child} already has parent {child.parent}, reuse the same function object in "
-                #      f"multiple places in tree may break memoization.")
-            child.parent = self
+            if parent:
+                assert child.parent == parent
+            else:
+                if hasattr(child, 'parent') and child.parent is not None:
+                    assert False, f"Warning, Node {child} already has parent {child.parent}"
+                child.parent = self
 
     def __matmul__(self, other):
         assert self.arg is None, "Can't combine compositions with bound parameters"
@@ -464,8 +468,9 @@ class MemoizedFunctionComposition:
             assert len(self.children[s.start:]) > 0
             return MemoizedFunctionComposition(self.children[s.start:], backlink)
         else:
-            assert isinstance(s, int)
-            return self.children[s]
+            assert False, "use [:] slicing as [i] is ambiguous"
+            # assert isinstance(s, int)
+            # return self.children[s]
 
     def _bind(self, arg):
         print('binding ', arg)
@@ -478,7 +483,7 @@ class MemoizedFunctionComposition:
         assert id(self._saved_outputs[len(self.children)]) == id(self.arg)
         assert node in self.children, "Trying to compute {node} but it's not in Composition"
         idx = self.children.index(node)
-        print('memoized compute on ', idx)
+        print(f'memoized compute on {idx}, {node}')
 
         # last_saved gives position of function whose output has been cached
         # we treat "x" as a dummy function which returns itself, so
@@ -490,7 +495,7 @@ class MemoizedFunctionComposition:
             last_cached = len(self.children)
 
         print(f'found saved output of {last_cached} node')
-        for i in range(last_cached - 1, -1, -1):
+        for i in range(last_cached - 1, idx-1, -1):
             if i == len(self.children):
                 assert id(self._saved_outputs[last_cached]) == id(self.arg)
                 continue
@@ -506,7 +511,10 @@ class MemoizedFunctionComposition:
         assert isinstance(arg, Vector), "must call function with Vector type"
         if self.parent is not None:
             assert isinstance(self.parent, MemoizedFunctionComposition)
-            assert id(arg) == id(self.parent.arg)
+            if self.parent.arg is not None:
+                assert id(arg) == id(self.parent.arg)
+            else:
+                self.parent._bind(arg)
             return self.parent.memoized_compute(self.children[0])
 
         if self.arg is None:

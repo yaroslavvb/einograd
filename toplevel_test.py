@@ -71,9 +71,8 @@ def test_unit_test_a():
 
     # (h1, h2, h3, h4) = (W, nonlin, U, loss)
     f = MemoizedFunctionComposition([h4, h3, h2, h1])
-    h = [None, f[3], f[2], f[1], f[0]]  # h[1] shorthand for h1, linked to a parent Composition
-    assert type(h[1]) == LinearLayer
-    assert type(h[4]) == LeastSquares
+    assert type(h1) == LinearLayer
+    assert type(h4) == LeastSquares
 
     a1 = x
     a2 = h1(a1)    # a_i gives input into i'th layer
@@ -112,6 +111,16 @@ def test_unit_test_a():
     f = MemoizedFunctionComposition([h4, h3, h2, h1])
     result = f(x)
     assert u.get_global_forward_flops() == 2*4
+
+    # partial composition test
+    u.reset_global_forward_flops()
+    print('flops ', u.get_global_forward_flops())
+    (W0, U0, x0, x, h1, h2, h3, h4) = _create_unit_test_a()
+    (W, nonlin, U, loss) = (h1, h2, h3, h4)
+    f = MemoizedFunctionComposition([h4, h3, h2, h1])
+    # result = f(x)
+    a2 = f[3:](x)   # input into h2
+    assert u.get_global_forward_flops() == 1
 
     # D(f)   # this is numerically equivalent to D(U) @ W * D(W)
     # slow = D(U) @ W * D(W)
