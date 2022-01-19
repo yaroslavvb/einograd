@@ -1,9 +1,15 @@
+from typing import Dict
+
+import natsort
+import torch.nn.functional as F
+
+from opt_einsum import helpers as oe_helpers
+import opt_einsum as oe
+# import natsort
+
 import util
 from base import *
-
 from util import *
-
-import torch.nn.functional as F
 
 _idx0 = 'a'
 
@@ -116,8 +122,9 @@ class IdentityLinearMap(Tensor):
     def out_dims(self):
         return ()
 
+
 zero = ZeroTensor()
-Zero = ZeroTensor()   # TODO(y) remove one of the zeros
+Zero = ZeroTensor()  # TODO(y) remove one of the zeros
 One = IdentityLinearMap()
 
 
@@ -195,8 +202,10 @@ class DenseCovector(Covector, ContractibleTensor):
     def T(self):
         return DenseCovector(self._value)
 
+
 class DenseSymmetricBilinear(SymmetricBilinearMap, ContractibleTensor):
     """Symmetric bilinear map represented with a rank-3 tensor"""
+
     def __init__(self, value):
         value = to_pytorch(value)
         assert len(value.shape) == 3
@@ -220,6 +229,7 @@ class DenseSymmetricBilinear(SymmetricBilinearMap, ContractibleTensor):
     def value(self):
         return self._value
 
+
 class DenseQuadraticForm(QuadraticForm, ContractibleTensor):
     """Symmetric bilinear map represented with a rank-2 tensor"""
 
@@ -234,7 +244,7 @@ class DenseQuadraticForm(QuadraticForm, ContractibleTensor):
         self._value = value
 
     @property
-    def out_dims(self) -> Tuple[int]:
+    def out_dims(self) -> tuple:
         return self._out_dims
 
     @property
@@ -519,16 +529,16 @@ class DSigmoid(AtomicFunction, LinearizedFunction):
         return self._in_dims
 
     def d(self, order=1):
-        return DSigmoid(self._in_dims[0], order=self.order+order)
+        return DSigmoid(self._in_dims[0], order=self.order + order)
 
     def __call__(self, x: Tensor) -> ContractibleTensor:
         x = x.value
         s = torch.sigmoid(x)
         if self.order == 1:
-            return DenseLinear(torch.diag(s*(1-s)))
+            return DenseLinear(torch.diag(s * (1 - s)))
         elif self.order == 2:
             n = self._in_dims[0]
-            p = s*(1-s)*(1-2*s)
+            p = s * (1 - s) * (1 - 2 * s)
             eye_3 = torch.einsum('ij, jk -> ijk', torch.eye(n), torch.eye(n))
             diag_3_p = torch.einsum('ijk, k -> ijk', eye_3, p)
             return DenseSymmetricBilinear(diag_3_p)
@@ -556,6 +566,69 @@ class DSigmoid(AtomicFunction, LinearizedFunction):
 #         # print('doing einsum ', einsum_str)
 #         # data = torch.einsum(einsum_str, self.data, x.data)
 #         # return DenseVector(data)
+
+
+class LinearLayer(AtomicFunction):
+    """Dense Linear Layer"""
+
+    _out_dims: Tuple[int]
+    _in_dims: Tuple[int]
+    W: DenseLinear
+
+    def __init__(self, W):
+        W = to_pytorch(W)
+        assert len(W.shape) == 2
+        assert W.shape[0] >= 1
+        assert W.shape[1] >= 1
+        W = DenseLinear(W)
+        self._out_dims = W.out_dims
+        self._in_dims = W.in_dims
+        self.W = W
+
+    def d(self, order=1):
+        return DLinearLayer(self.W, order=order)
+
+    @property
+    def out_dims(self) -> Tuple[int]:
+        return self._out_dims
+
+    @property
+    def in_dims(self) -> Tuple[int]:
+        return self._in_dims
+
+    def __call__(self, x: Vector) -> DenseVector:
+        assert isinstance(x, Vector)
+        result = self.W * x
+        assert isinstance(result, DenseVector)
+        return result
+
+
+class DLinearLayer(AtomicFunction, LinearizedFunction):
+    """derivative of Dense Linear Layer"""
+
+    W: DenseLinear
+
+    def in_dims(self):
+        return self.W.in_dims
+
+    def out_dims(self):
+        return self.W.out_dims
+
+    def __init__(self, W: DenseLinear, order=1):
+        # for now, only support matrices
+        self.order = order
+        assert len(W.in_idx()) == 1
+        assert len(W.out_idx()) == 1
+        self.W = W
+
+    def __call__(self, _unused_x: Tensor) -> DenseLinear:
+        return self.W
+
+    def d(self, order=1):
+        if order == 1:
+            return self
+        else:
+            return Zero
 
 
 #    TODO(y): maybe also implement Function interface?
@@ -633,7 +706,7 @@ class MemoizedFunctionComposition:
             last_cached = len(self.children)
 
         print(f'found saved output of {last_cached} node')
-        for i in range(last_cached - 1, idx-1, -1):
+        for i in range(last_cached - 1, idx - 1, -1):
             if i == len(self.children):
                 assert id(self._saved_outputs[last_cached]) == id(self.arg)
                 continue
@@ -663,67 +736,267 @@ class MemoizedFunctionComposition:
         return self.memoized_compute(self.children[0])
 
 
-class LinearLayer(AtomicFunction):
-    """Dense Linear Layer"""
+class StructuredTensor(Tensor):
+    # tensor in a structured form (einsum)
+    # it supports lazy contraction with other tensors, calculating flop counts
+    # performing the calculation
 
-    _out_dims: Tuple[int]
     _in_dims: Tuple[int]
-    W: DenseLinear
+    _out_dims: Tuple[int]
 
-    def __init__(self, W):
-        W = to_pytorch(W)
-        assert len(W.shape) == 2
-        assert W.shape[0] >= 1
-        assert W.shape[1] >= 1
-        W = DenseLinear(W)
-        self._out_dims = W.out_dims
-        self._in_dims = W.in_dims
-        self.W = W
+    out_indices: List[chr]
+    in_indices: List[chr]
+    contracted_indices: List[chr]
 
-    def d(self, order=1):
-        return DLinearLayer(self.W, order=order)
+    _index_spec_list: List[str]  # ['ij|k', 'k|lm'] => [output1|input1,output2|input2]
+    _einsum_spec: str            # 'ij,jk->ik'
+
+    tensors: List[torch.Tensor]  # [torch.ones((2,2,2)), torch.ones((2,2,2))]
+
+    index_degree: Dict[chr, int]
+    """for each index, count how many tensors share this index
+    it is the degree of the "hyper-edge" labeled by this index in the Tensor Network Diagram
+    d['i']==1 indicates a free index, i is a dangling edge
+    d['i']==2 indicates contraction of two tensors, i is regular edge 
+    d['i']==3 indicates contraction of three tensors, i is a hyper-edge connecting three tensors """
+
+    # extra debugging, for each index, keep count of how many tensors have this index as out/in index
+    # as well as the list of tensors
+    index_out_degree: Dict[chr, int]
+    index_in_degree: Dict[chr, int]
+    index_out_tensors: Dict[chr, List[torch.Tensor]]  # d['i'] == [tensor1, tensor2, ...]
+    index_in_tensors: Dict[chr, List[torch.Tensor]]
+
+    index_dim: Dict[chr, int]
+    "index dimensions, ie index_dim['i']==3"
 
     @property
-    def out_dims(self) -> Tuple[int]:
-        return self._out_dims
-
-    @property
-    def in_dims(self) -> Tuple[int]:
+    def in_dims(self):
         return self._in_dims
 
-    def __call__(self, x: Vector) -> DenseVector:
-        assert isinstance(x, Vector)
-        result = self.W * x
-        assert isinstance(result, DenseVector)
-        return result
-
-
-class DLinearLayer(AtomicFunction, LinearizedFunction):
-    """derivative of Dense Linear Layer"""
-
-    W: DenseLinear
-
-    def in_dims(self):
-        return self.W.in_dims
-
+    @property
     def out_dims(self):
-        return self.W.out_dims
+        return self._out_dims
 
-    def __init__(self, W: DenseLinear, order=1):
-        # for now, only support matrices
-        self.order = order
-        assert len(W.in_idx()) == 1
-        assert len(W.out_idx()) == 1
-        self.W = W
+    def __init__(self, index_spec_list, tensors):
+        """['ij|k', 'k|lm'], [tensor1, tensor2]"""
+        if len(index_spec_list) != len(tensors):
+            print(f"Provided {len(tensors)} tensors, but your index spec has {len(index_spec_list)} terms: ")
+            for (i, term) in enumerate(index_spec_list):
+                print(f"term {i:2d}: {term:>20}")
+                assert False
 
-    def __call__(self, _unused_x: Tensor) -> DenseLinear:
-        return self.W
+        self._index_spec_list = index_spec_list
+        self.tensors = tensors
+        self.index_degree = {}
+        self.index_out_degree = {}
+        self.index_in_degree = {}
+        self.index_out_tensors = {}
+        self.index_in_tensors = {}
 
-    def d(self, order=1):
-        if order == 1:
-            return self
-        else:
-            return Zero
+        all_indices = set()   # all
+
+        # create dict of sizes, by matching indices to tensors
+        index_dim = {}  # ['ij'], [np.ones((2,5))] gives {'i': 2, 'j': 5}
+        for (index_spec, tensor) in zip(index_spec_list, tensors):
+            assert isinstance(index_spec, str)
+            assert isinstance(tensor, torch.Tensor), f"Provided not an instance of torch.Tensor, {index_spec}, {tensor}"
+            output_indices, input_indices = index_spec.split('|')
+            all_indices_tensor = output_indices + input_indices
+
+            assert len(all_indices_tensor) == len(set(all_indices_tensor))
+            if gl.PURE_TENSOR_NETWORKS:  # this disallows diagonal tensors
+                assert not set(input_indices).intersection(set(output_indices))
+
+            all_indices.update(set(all_indices_tensor))
+
+            for idx in output_indices:
+                # noinspection PyTypeChecker
+                self.index_out_tensors.setdefault(idx, []).append(tensor)
+            self.index_out_degree[idx] = self.index_out_degree.get(idx, 0) + 1
+            for idx in input_indices:
+                # noinspection PyTypeChecker
+                self.index_in_tensors.setdefault(idx, []).append(tensor)
+                self.index_in_degree[idx] = self.index_in_degree.get(idx, 0) + 1
+
+            for idx in set(all_indices_tensor):
+                self.index_degree[idx] = self.index_degree.get(idx, 0) + 1
+
+            for (idx, dim) in zip(all_indices_tensor, tensor.shape):
+                if idx in index_dim:
+                    assert index_dim[idx] == dim, f"trying to set idx {idx} in indices {index_spec} to {dim}, " \
+                                                  f"but it's already set to have dimension {index_dim[idx]}"
+                assert dim > 0, f"Index {idx} has dimension {dim}"
+                index_dim[idx] = dim
+        self.index_dim = index_dim
+
+        # sanity check, for each index make sure it appears equal number of times as contravariant and covariant
+        self.contracted_indices = []
+        self.out_indices = []
+        self.in_indices = []
+        for idx in all_indices:
+            # number of tensors for which this idx is upper/contravariant
+            out_count = len(self.index_out_tensors.get(idx, []))
+            # number of tensors for which this idx is lower/covariant
+            in_count = len(self.index_in_tensors.get(idx, []))
+            assert out_count == self.index_out_degree.get(idx, 0)
+            assert in_count == self.index_in_degree.get(idx, 0)
+
+            if out_count and in_count:
+                assert out_count == in_count
+                if gl.PURE_TENSOR_NETWORKS:
+                    assert out_count == 1  # in pure tensor networks, each index is contracted at most once
+                else:
+                    assert out_count <= 2, f"Index {idx} is contravariant in {out_count} tensors, suspicious," \
+                                           f"it should be 1 for regular tensors, and 2 for diagonal matrices "
+                assert idx not in self.contracted_indices, f"Trying to add {idx} as contracted index twice"
+                self.contracted_indices.append(idx)
+            elif out_count and not in_count:
+                assert idx not in self.out_indices, f"Trying to add {idx} as output index twice"
+                self.out_indices.append(idx)
+            elif in_count and not out_count:
+                assert idx not in self.out_indices, f"Trying to add {idx} as input index twice"
+                self.in_indices.append(idx)
+            else:
+                assert False, f"Shouldn't be here, {idx} is marked as occuring {out_count} times as contravariant " \
+                              f"and {in_count} as covariant"
+
+        assert len(self.out_indices) == len(set(self.out_indices))
+        assert len(self.in_indices) == len(set(self.in_indices))
+        assert not set(self.out_indices).intersection(self.in_indices)
+
+        self._out_dims = tuple(self.index_dim[c] for c in self.out_indices)
+        self._in_dims = tuple(self.index_dim[c] for c in self.in_indices)
+
+        einsum_in = ','.join(index_spec.replace('|', '') for index_spec in self._index_spec_list)
+        einsum_out = ''.join(self.out_indices) + ''.join(self.in_indices)
+        self._einsum_spec = f'{einsum_in}->{einsum_out}'
+
+
+    @staticmethod
+    def from_dense_vector(x):
+        """Creates StructuredTensor object corresponding to given dense vector"""
+        pass
+
+    @staticmethod
+    def from_dense_covector(x):
+        """Creates StructuredTensor object corresponding to given dense covector"""
+        pass
+
+    @staticmethod
+    def from_dense_matrix(x):
+        """Creates StructuredTensor object (LinearMap with 1 output, 1 input indices) from given matrix
+        """
+        pass
+
+    def contract(self, other: 'StructuredTensor'):
+        # TODO(y): implement index incrementing here
+        assert 1 != 0, "not implemented"
+        print(self)
+        return other
+        # return StructuredTensor(self.indices + other.indices, self.tensors + other.tensors)
+
+    @property
+    def value(self):
+        return torch.einsum(self._einsum_spec, *self.tensors)
+
+    @property
+    def flops(self):
+        """Flops required to materialize this tensor after einsum optimization"""
+
+        views = oe.helpers.build_views(self._einsum_spec, self.index_dim)
+        path, info = oe.contract_path(self._einsum_spec, *views, optimize='dp')
+        return int(info.opt_cost)
+
+    def _print_schedule(self):
+        """Prints contraction schedule obtained by einsum optimizer"""
+
+        einsum_str = self._einsum_spec
+        sizes_dict = self.index_dim
+
+        # indices: ['ij','jk','kl','lm']
+        indices = einsum_str.split('->')[0].split(',')
+        output_indices = einsum_str.split('->')[1]
+        # unique_inds = set(einsum_str) - {',', '-', '>'}
+        # index_size = [5]*len(unique_inds)
+        # sizes_dict = dict(zip(unique_inds, index_size))
+        views = oe.helpers.build_views(einsum_str, sizes_dict)
+
+        # path: contraction path in einsum optimizer format, ie, [(0,), (2,), (1, 3), (0, 2), (0, 1)]
+        path, info = oe.contract_path(einsum_str, *views, optimize='dp')
+
+        # TODO(y): replace terms with something user provided
+        # terms: ['term1', 'term2', 'term3', 'term4']
+        terms = [f'term{i}' for i in range(len(indices))]
+        print('optimizing ', einsum_str, terms)
+        print('flops: ', info.opt_cost)
+
+        # output_subscript: ['kl']
+        output_subscript = output_indices
+
+        input_index_sets = [set(x) for x in indices]
+        output_indices = set(output_subscript)
+
+        derived_count = 0
+        for i, contract_inds in enumerate(path):
+            contract_inds = tuple(sorted(list(contract_inds), reverse=True))
+            # print(f'contracting {contract_inds}, input {input_index_sets}, output {output_indices}')
+            contract_tuple = oe_helpers.find_contraction(contract_inds, input_index_sets, output_indices)
+            out_inds, input_index_sets, _, idx_contract = contract_tuple
+            # print(f'idx_contract {idx_contract}, out_inds {out_inds}')
+
+            current_input_index_sets = [indices.pop(x) for x in contract_inds]
+            current_terms = [terms.pop(x) for x in contract_inds]
+
+            # Last contraction
+            if (i - len(path)) == -1:
+                current_output_indices = output_subscript
+                derived_term = f'derived{derived_count}'
+            else:
+                all_input_inds = "".join(current_input_index_sets)
+                current_output_indices = "".join(sorted(out_inds, key=all_input_inds.find))
+                derived_term = f'derived{derived_count}'
+                derived_count += 1
+
+            indices.append(current_output_indices)
+            terms.append(derived_term)
+
+            new_terms = []
+            new_sets = []
+            # for i in natsort.index_natsorted(current_terms):
+            for i in natsort.index_natsorted(current_input_index_sets):
+                new_terms.append(current_terms[i])
+                new_sets.append(current_input_index_sets[i])
+            # einsum_str = ",".join(current_input_index_sets) + "->" + current_output_indices
+            #        print(f'{derived_term}=einsum({einsum_str}, {current_terms})')
+            einsum_str = ",".join(new_sets) + "->" + current_output_indices
+            print(f'{derived_term}=einsum({einsum_str}, {new_terms})')
+
+
+class TensorContractionChain:
+    """Represents contraction chain of multiple structured tensors. Keeps them in original form because one might
+    call D on this
+
+    D(dh1(f[1:]) * dh2(f[2:])) -> D(dh1(f[1:])) * dh2(f[2:]) + dh1(f[1:])*D(dh2(f[2:]))
+
+    # supports ".flops" and ".value" fields which perform optimization/computation
+
+
+    """
+
+    children: List[StructuredTensor]
+
+    @property
+    def flops(self):
+        assert 1 != 0, "not implemented"
+        return 0
+
+    @property
+    def value(self):
+        result = self.children[0]
+        for c in self.children[1:]:
+            result = result.contract(c)
+        return result.value
 
 # creator helper methods
 #    W = make_linear([[1, -2], [-3, 4]])

@@ -3,6 +3,10 @@
 from abc import ABC, abstractmethod
 from typing import List, Tuple, Callable, Any
 
+from attrdict import AttrDict
+
+gl = AttrDict({'DEBUG': True, 'device': 'cpu', 'PURE_TENSOR_NETWORKS': True})
+
 
 class Operator(ABC):
     other: 'Function'

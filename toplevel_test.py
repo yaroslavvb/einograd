@@ -139,6 +139,108 @@ def test_unit_test_a():
     # call, "D" operator,
 
 
+def test_structured_tensor():
+    d = 10
+    x00 = torch.ones((d, d))
+    y00 = torch.ones((d, d))
+    z00 = 2*torch.ones((d, d))
+
+    a = StructuredTensor(['a|b', 'b|c'], [x00, y00])
+    u.check_equal(a, x00 @ y00 )
+    assert a.flops == 2*d**3
+
+    x = StructuredTensor(['i|j', 'j|k', 'k|l'], [x00, y00, z00])
+    u.check_equal(x, x00 @ y00 @ z00)
+
+    x = StructuredTensor(['a,b'], [x00])
+    y = StructuredTensor(['a,b'], [y00])
+    z = StructuredTensor(['a,b'], [z00])
+
+    # sanity basic FLOP counts from
+    # https://www.dropbox.com/s/47jxfhkb5g9nwvb/einograd-flops-basic.pdf?dl=0
+
+    xyz = x*y*z
+    assert xyz.flops == 400
+    u.check_equal(xyz, x00 @ y00 @ z00)
+
+    x00 = torch.ones((d,))
+    ma0 = 2*torch.ones(d, d)
+    col = StructuredTensor.from_dense_vector(x00)
+    row = StructuredTensor.from_dense_covector(x00)
+    mat = StructuredTensor.from_dense_matrix(ma0)
+    diag = StructuredTensor.from_diag_matrix(3*x00)
+    dia0 = diag.value
+
+    assert (row * mat * mat * mat).flops == 600  # reverse mode
+    assert (mat * mat * mat * col).flops == 600  # forward mode
+
+    assert (mat * mat * col * row * mat * mat).flops == 1000 # mixed mode
+    assert (col * row).flops == 200                          # outer product
+    assert (row * mat * diag * mat).flops == 410             # structured reverse mode
+
+    u.check_equal(row * mat * mat * mat,
+                  x00 @ ma0 @ ma0 @ ma0)
+    u.check_equal(mat * mat * mat * col,
+                  ma0 @ ma0 @ ma0 @ x00)
+    colmat000 = torch.outer(x00, x00)
+    u.check_equal(mat * mat * col * row * mat * mat,
+                  ma0 @ ma0 @ colmat000 @ ma0 @ ma0)
+
+    u.check_equal(row @ mat @ diag @ mat,
+                  x00 @ ma0 @ dia0 @ ma0)
+
+    # 3 x 2 grid example from "3 decompositions" section of
+    # https://notability.com/n/wNU5UXNGENsmRBzMFDSJQ
+    d = 2
+    rank2 = np.ones((d, d))
+    rank3 = np.ones((d, d, d))
+    A = StructuredTensor.from_dense_covector(rank2, idx='ij')
+    B = StructuredTensor.from_dense_linearmap(rank3, idx='i,ml')
+    C = StructuredTensor.from_dense_linearmap(rank2, idx='l,o')
+    D = StructuredTensor.from_dense_linearmap(rank2, idx='j,k')
+    E = StructuredTensor.from_dense_linearmap(rank3, idx='km,n')
+    F = StructuredTensor.from_dense_vector(rank2, idx='no')
+    K = A * B * C * D * E * F
+    print(K.value)
+    print(K.flops)
+
+
+def test_contraction():
+    (W0, U0, x0, x, h1, h2, h3, h4) = _create_unit_test_a()
+    (W, nonlin, U, loss) = (h1, h2, h3, h4)
+
+    # (h1, h2, h3, h4) = (W, nonlin, U, loss)
+    f = MemoizedFunctionComposition([h4, h3, h2, h1])
+    assert type(h1) == LinearLayer
+    assert type(h4) == LeastSquares
+
+    a1 = x
+    a2 = h1(a1)    # a_i gives input into i'th layer
+    a3 = h2(a2)
+    a4 = h3(a3)
+    a5 = h4(a4)
+    u.check_equal(a1, [1, 2])
+    u.check_equal(a2, [-3, 5])
+    u.check_equal(a3, [0, 5])
+    u.check_equal(a4, [-30, 40])
+    u.check_equal(a5, 1250)
+
+    # check per-layer Jacobians
+    dh1, dh2, dh3, dh4 = D(h1), D(h2), D(h3), D(h4)
+    f = MemoizedFunctionComposition([h4, h3, h2, h1])
+
+    ### start here
+    deriv = dh1(f[1:]) * dh2(f[2:]) * dh3(f[3:]) * dh4(f[4:])   # Contraction object
+    # deriv.flops  # prints the flop count
+    # deriv.value   # prints the value
+
+    """Contraction object
+    
+    
+    
+    """
+
+
 def test_sigmoid():
     (W0, U0, x0, x, h1, h2, h3, h4) = _create_unit_test_a()
     (W, nonlin, U, loss) = (h1, h2, h3, h4)
@@ -179,8 +281,8 @@ def test_least_squares():
     a4 = h3(a3)
     a5 = h4(a4)
 
-    assert isinstance(D(h4)(a4), DenseCovector)
-    assert isinstance(D2(h4)(a4), DenseQuadraticForm)
+    assert isinstance(D(h4)(a4), Covector)
+    assert isinstance(D2(h4)(a4), QuadraticForm)
     u.check_equal(D(h4)(a4), a4)
     u.check_equal(D2(h4)(a4), torch.eye(2))
 
@@ -303,15 +405,17 @@ def test_present1():
     # TODO: simplified version with ReLU, xent instead of sigmoid, LeastSquaresLoss
     pass
 
-
-if __name__ == '__main__':
+def run_all():
     test_contract()
     test_dense()
     test_relu()
     test_unit_test_a()
     test_sigmoid()
     test_least_squares()
-    # test_unit_test_A()
+    test_structured_tensor()
+
+if __name__ == '__main__':
+    run_all()
     sys.exit()
     # noinspection PyTypeChecker,PyUnreachableCode
     u.run_all_tests(sys.modules[__name__])
