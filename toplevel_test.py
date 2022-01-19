@@ -224,6 +224,9 @@ def test_contraction():
     a3 = h2(a2)
     a4 = h3(a3)
     a5 = h4(a4)
+
+    f(a1)
+
     u.check_equal(a1, [1, 2])
     u.check_equal(a2, [-3, 5])
     u.check_equal(a3, [0, 5])
@@ -232,19 +235,13 @@ def test_contraction():
 
     # check per-layer Jacobians
     dh1, dh2, dh3, dh4 = D(h1), D(h2), D(h3), D(h4)
-    f = MemoizedFunctionComposition([h4, h3, h2, h1])
 
-    ### start here
+    f(a1)   # run this once to save activations
+    print('---', f[1:].value)
+    sys.exit()
     deriv = dh1(f[1:]) * dh2(f[2:]) * dh3(f[3:]) * dh4(f[4:])   # Contraction object
     # deriv.flops  # prints the flop count
     # deriv.value   # prints the value
-
-    """Contraction object
-    
-    
-    
-    """
-
 
 def test_sigmoid():
     (W0, U0, x0, x, h1, h2, h3, h4) = _create_unit_test_a()
@@ -418,6 +415,7 @@ def run_all():
     test_sigmoid()
     test_least_squares()
     test_structured_tensor()
+    test_contraction()
 
 if __name__ == '__main__':
     run_all()

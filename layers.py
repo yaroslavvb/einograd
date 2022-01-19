@@ -736,6 +736,14 @@ class MemoizedFunctionComposition:
 
         return self.memoized_compute(self.children[0])
 
+    @property
+    def value(self):
+        if self.parent:
+            return self.__call__(self.parent.arg)
+        else:
+            assert self.arg, "Trying to get value of function composition, but arg has not been supplied yet"
+            return self.__call__(self.arg)
+
 
 class StructuredTensor(Tensor):
     # tensor in a structured form (einsum)
