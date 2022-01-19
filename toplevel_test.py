@@ -197,17 +197,23 @@ def test_structured_tensor():
     # 3 x 2 grid example from "3 decompositions" section of
     # https://notability.com/n/wNU5UXNGENsmRBzMFDSJQ
     d = 2
-    rank2 = np.ones((d, d))
-    rank3 = np.ones((d, d, d))
-    # A = StructuredTensor.from_dense_covector(rank2, idx='ij')
-    # B = StructuredTensor.from_dense_linearmap(rank3, idx='i,ml')
-    # C = StructuredTensor.from_dense_linearmap(rank2, idx='l,o')
-    # D = StructuredTensor.from_dense_linearmap(rank2, idx='j,k')
-    # E = StructuredTensor.from_dense_linearmap(rank3, idx='km,n')
-    # F = StructuredTensor.from_dense_vector(rank2, idx='no')
+    rank2 = torch.ones((d, d))
+    rank3 = torch.ones((d, d, d))
+    A = StructuredTensor.from_dense_covector(rank2, idx='ij', tag='A')
+    B = StructuredTensor.from_dense_linearmap(rank3, idx='i|ml', tag='B')
+    C = StructuredTensor.from_dense_linearmap(rank2, idx='l|o', tag='C')
+    D = StructuredTensor.from_dense_linearmap(rank2, idx='j|k', tag='D')
+    E = StructuredTensor.from_dense_linearmap(rank3, idx='km|n', tag='E')
+    F = StructuredTensor.from_dense_vector(rank2, idx='no', tag='F')
+    K = A * B
     # K = A * B * C * D * E * F
-    # print(K.value)
-    # print(K.flops)
+    # disable some error checks
+    # gl.ALLOW_PARTIAL_CONTRACTIONS = True
+    # gl.ALLOW_UNSORTED_INDICES = True
+    # K = A * B * C * D
+    # TODO(y): non-determinism (probably because using set)
+    #    print(K.value)
+    #    print(K.flops)
 
 
 def test_contraction():
@@ -225,7 +231,7 @@ def test_contraction():
     a4 = h3(a3)
     a5 = h4(a4)
 
-    f(a1)
+    f(a1)   # run once to save activations
 
     u.check_equal(a1, [1, 2])
     u.check_equal(a2, [-3, 5])
@@ -236,12 +242,11 @@ def test_contraction():
     # check per-layer Jacobians
     dh1, dh2, dh3, dh4 = D(h1), D(h2), D(h3), D(h4)
 
-    f(a1)   # run this once to save activations
-    print('---', f[1:].value)
-    sys.exit()
-    deriv = dh1(f[1:]) * dh2(f[2:]) * dh3(f[3:]) * dh4(f[4:])   # Contraction object
-    # deriv.flops  # prints the flop count
-    # deriv.value   # prints the value
+    deriv = dh1(f[1:]) * dh2(f[2:]) * dh3(f[3:])
+
+    # TODO: change D functions to produce "structured tensor" objects
+    # print(deriv.flops)  # prints the flop count
+    # print(deriv.value)   # prints the value
 
 def test_sigmoid():
     (W0, U0, x0, x, h1, h2, h3, h4) = _create_unit_test_a()
@@ -414,8 +419,8 @@ def run_all():
     test_unit_test_a()
     test_sigmoid()
     test_least_squares()
-    test_structured_tensor()
     test_contraction()
+    test_structured_tensor()
 
 if __name__ == '__main__':
     run_all()

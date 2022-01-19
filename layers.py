@@ -472,6 +472,7 @@ class DRelu(AtomicFunction, LinearizedFunction):
 
     def __call__(self, x: Tensor) -> DenseLinear:
         if self.order == 1:
+            print('-------', type(x), type(x.value))
             x = x.value
             return DenseLinear(torch.diag((x > torch.tensor(0)).float()))
         assert False
@@ -719,7 +720,7 @@ class MemoizedFunctionComposition:
 
         return self._saved_outputs[idx]
 
-    def __call__(self, arg: Vector):
+    def __call__(self, arg: Vector) -> Vector:
         assert isinstance(arg, Vector), "must call function with Vector type"
         if self.parent is not None:
             assert isinstance(self.parent, MemoizedFunctionComposition)
@@ -739,10 +740,12 @@ class MemoizedFunctionComposition:
     @property
     def value(self):
         if self.parent:
-            return self.__call__(self.parent.arg)
+            result = self.__call__(self.parent.arg)
         else:
             assert self.arg, "Trying to get value of function composition, but arg has not been supplied yet"
-            return self.__call__(self.arg)
+            result = self.__call__(self.arg)
+        if hasattr(result, 'value'):
+            return result.value
 
 
 class StructuredTensor(Tensor):
@@ -906,23 +909,25 @@ class StructuredTensor(Tensor):
             self._einsum_spec = f'{einsum_in}->{einsum_out}'
 
     @staticmethod
-    def from_dense_vector(x: torch.Tensor, tag: str = None):
+    def from_dense_vector(x: torch.Tensor, tag: str = None, idx: str = None):
         """Creates StructuredTensor object corresponding to given dense vector"""
         assert isinstance(x, torch.Tensor)
-        assert len(x.shape) == 1
         assert x.shape[0] > 0
-        return StructuredTensor(['i|'], [x], tag)
+        if idx is None:
+            idx = ''.join(chr(i) for i in range(ord('i'), ord('i')+len(x.shape)))
+        return StructuredTensor([idx+'|'], [x], tag)
 
     @staticmethod
-    def from_dense_covector(x: torch.Tensor, tag: str = None):
+    def from_dense_covector(x: torch.Tensor, tag: str = None, idx: str = None):
         """Creates StructuredTensor object corresponding to given dense covector"""
         assert isinstance(x, torch.Tensor)
-        assert len(x.shape) == 1
         assert x.shape[0] > 0
-        return StructuredTensor(['|i'], [x], tag)
+        if idx is None:
+            idx = ''.join(chr(i) for i in range(ord('i'), ord('i')+len(x.shape)))
+        return StructuredTensor(['|'+idx], [x], tag)
 
     @staticmethod
-    def from_dense_matrix(x: torch.Tensor, tag: str = None):
+    def from_dense_matrix(x: torch.Tensor, tag: str = None, idx: str = None):
         """Creates StructuredTensor object (LinearMap with 1 output, 1 input indices) from given matrix
         """
         assert isinstance(x, torch.Tensor)
@@ -930,6 +935,10 @@ class StructuredTensor(Tensor):
         assert x.shape[0] > 0
         assert x.shape[1] > 0
         return StructuredTensor(['i|j'], [x], tag)
+
+    @staticmethod
+    def from_dense_linearmap(x: torch.Tensor, tag: str = None, idx: str = None):
+        return StructuredTensor([idx], [x], tag)
 
     @staticmethod
     def from_diag_matrix(x: torch.Tensor, tag: str = None):
@@ -1000,8 +1009,10 @@ class StructuredTensor(Tensor):
         # check that output/input indices are consecutive
         if self.out_indices:
             assert self.out_indices[-1] == chr(ord(self.out_indices[0])+len(self.out_indices)-1)
+        # input indices won't be consecutive after partial contractions
         if self.in_indices:
-            assert self.in_indices[-1] == chr(ord(self.in_indices[0])+len(self.in_indices)-1)
+            if not gl.ALLOW_PARTIAL_CONTRACTIONS:
+                assert self.in_indices[-1] == chr(ord(self.in_indices[0])+len(self.in_indices)-1)
 
     def contract(self, other: 'StructuredTensor'):
         # print('', self._index_spec_list)
@@ -1033,7 +1044,8 @@ class StructuredTensor(Tensor):
             incr1 = len(set(left.out_indices + left.contracted_indices))
         else:
             incr1 = ord(left.in_indices[0]) - ord(right.out_indices[0])
-        assert incr1 >= 0, f"Problem matching right tensor's {right.out_indices} to left tensor's {left.in_indices}, " \
+        if not gl.ALLOW_UNSORTED_INDICES:
+            assert incr1 >= 0, f"Problem matching right tensor's {right.out_indices} to left tensor's {left.in_indices}, " \
                            f"we are assuming right tensors indices are incremented, never decremented"
 
         for idx in reversed(sorted(set(right.in_indices + right.out_indices + right.contracted_indices))):
@@ -1051,8 +1063,9 @@ class StructuredTensor(Tensor):
         # finally, increment uncontracted input indices on the left to avoid interfering with contracted/input indices
         # left.input_indices except left's contracted input indices incremented by
         for idx in set(left.in_indices).difference(right.out_indices):
-            # move forward by set(right.contracted_indices+right.in_indices) -
-            offset = len(set(right.contracted_indices+right.in_indices))
+            # move 1 beyond largest input index of the right tensor
+            offset = int(ord(max(right.out_indices))) + 1 - int(ord(min(set(left.in_indices).difference(right.out_indices))))
+            #  offset = len(set(right.contracted_indices+right.in_indices))
             if offset > 0:
                 left.rename_index(idx, chr(ord(idx)+offset))
 
