@@ -62,7 +62,7 @@ class ContractibleTensor(Tensor, ABC):
         return upper + lower, upper, lower
 
     def __mul__(self, other):
-        print('other is ', other)
+        # print('other is ', other)
         assert isinstance(other, ContractibleTensor), f"contracting tensor with {type(other)}"
 
         t1 = self
@@ -742,6 +742,7 @@ class StructuredTensor(Tensor):
     # it supports lazy contraction with other tensors, calculating flop counts
     # performing the calculation
 
+    tag: str   # tag helpful for debugging
     _in_dims: Tuple[int]
     _out_dims: Tuple[int]
 
@@ -779,8 +780,17 @@ class StructuredTensor(Tensor):
     def out_dims(self):
         return self._out_dims
 
-    def __init__(self, index_spec_list, tensors):
+    def __init__(self, index_spec_list, tensors, tag=None):
         """['ij|k', 'k|lm'], [tensor1, tensor2]"""
+
+        if tag is not None:
+            self.tag = tag
+        else:
+            self.tag = f'tensor{gl.tensor_count:02d}'
+            gl.tensor_count += 1
+
+        index_spec_list = index_spec_list.copy()
+
         if len(index_spec_list) != len(tensors):
             print(f"Provided {len(tensors)} tensors, but your index spec has {len(index_spec_list)} terms: ")
             for (i, term) in enumerate(index_spec_list):
@@ -805,7 +815,12 @@ class StructuredTensor(Tensor):
             output_indices, input_indices = index_spec.split('|')
             all_indices_tensor = output_indices + input_indices
 
-            assert len(all_indices_tensor) == len(set(all_indices_tensor))
+            # special handling for diagonal tensors
+            if output_indices == input_indices:
+                self.IS_DIAGONAL = True
+            else:
+                self.IS_DIAGONAL = False
+                assert len(all_indices_tensor) == len(set(all_indices_tensor))
             if gl.PURE_TENSOR_NETWORKS:  # this disallows diagonal tensors
                 assert not set(input_indices).intersection(set(output_indices))
 
@@ -835,7 +850,7 @@ class StructuredTensor(Tensor):
         self.contracted_indices = []
         self.out_indices = []
         self.in_indices = []
-        for idx in all_indices:
+        for idx in sorted(all_indices):
             # number of tensors for which this idx is upper/contravariant
             out_count = len(self.index_out_tensors.get(idx, []))
             # number of tensors for which this idx is lower/covariant
@@ -844,7 +859,8 @@ class StructuredTensor(Tensor):
             assert in_count == self.index_in_degree.get(idx, 0)
 
             if out_count and in_count:
-                assert out_count == in_count
+                if not self.IS_DIAGONAL:
+                    assert out_count == in_count
                 if gl.PURE_TENSOR_NETWORKS:
                     assert out_count == 1  # in pure tensor networks, each index is contracted at most once
                 else:
@@ -852,6 +868,8 @@ class StructuredTensor(Tensor):
                                            f"it should be 1 for regular tensors, and 2 for diagonal matrices "
                 assert idx not in self.contracted_indices, f"Trying to add {idx} as contracted index twice"
                 self.contracted_indices.append(idx)
+                self._check_indices_sorted()
+
             elif out_count and not in_count:
                 assert idx not in self.out_indices, f"Trying to add {idx} as output index twice"
                 self.out_indices.append(idx)
@@ -871,40 +889,55 @@ class StructuredTensor(Tensor):
 
         einsum_in = ','.join(index_spec.replace('|', '') for index_spec in self._index_spec_list)
         einsum_out = ''.join(self.out_indices) + ''.join(self.in_indices)
-        self._einsum_spec = f'{einsum_in}->{einsum_out}'
+
+        if self.IS_DIAGONAL:
+            self._einsum_spec = f'{input_indices}->{einsum_in}'
+            self.in_indices = list(input_indices)
+            self.out_indices = list(output_indices)
+        else:
+            self._einsum_spec = f'{einsum_in}->{einsum_out}'
 
     @staticmethod
-    def from_dense_vector(x: torch.Tensor):
+    def from_dense_vector(x: torch.Tensor, tag: str = None):
         """Creates StructuredTensor object corresponding to given dense vector"""
         assert isinstance(x, torch.Tensor)
         assert len(x.shape) == 1
         assert x.shape[0] > 0
-        return StructuredTensor(['i|'], [x])
+        return StructuredTensor(['i|'], [x], tag)
 
     @staticmethod
-    def from_dense_covector(x: torch.Tensor):
+    def from_dense_covector(x: torch.Tensor, tag: str = None):
         """Creates StructuredTensor object corresponding to given dense covector"""
         assert isinstance(x, torch.Tensor)
         assert len(x.shape) == 1
         assert x.shape[0] > 0
-        return StructuredTensor(['|i'], [x])
+        return StructuredTensor(['|i'], [x], tag)
 
     @staticmethod
-    def from_dense_matrix(x: torch.Tensor):
+    def from_dense_matrix(x: torch.Tensor, tag: str = None):
         """Creates StructuredTensor object (LinearMap with 1 output, 1 input indices) from given matrix
         """
         assert isinstance(x, torch.Tensor)
         assert len(x.shape) == 2
         assert x.shape[0] > 0
         assert x.shape[1] > 0
-        return StructuredTensor(['i|j'], [x])
+        return StructuredTensor(['i|j'], [x], tag)
+
+    @staticmethod
+    def from_diag_matrix(x: torch.Tensor, tag: str = None):
+        """Creates StructuredTensor object (LinearMap with 1 output, 1 input indices) from given matrix
+        """
+        assert isinstance(x, torch.Tensor)
+        assert len(x.shape) == 1
+        assert x.shape[0] > 0
+        return StructuredTensor(['i|i'], [x], tag)
 
     # @staticmethod(x)
 
     import more_itertools
 
-    def rename_index(self, old_name, new_name, tag='none'):
-        print(f"naming {tag}:{old_name} to {new_name}")
+    def rename_index(self, old_name, new_name):
+        # print(f"naming {tag}:{old_name} to {new_name}")
 
         def rename_dictionary_entry(d: Dict[chr, Any], old_name: chr, new_name: chr):
             if old_name not in d:
@@ -953,7 +986,8 @@ class StructuredTensor(Tensor):
         assert more_itertools.is_sorted(self.out_indices, strict=True)
         assert more_itertools.is_sorted(self.contracted_indices, strict=True)
         assert more_itertools.is_sorted(self.in_indices, strict=True)
-        assert more_itertools.is_sorted(self.out_indices + self.contracted_indices + self.in_indices, strict=True)
+        if not self.IS_DIAGONAL:
+            assert more_itertools.is_sorted(self.out_indices + self.contracted_indices + self.in_indices, strict=True)
 
         # check that output/input indices are consecutive
         if self.out_indices:
@@ -962,10 +996,8 @@ class StructuredTensor(Tensor):
             assert self.in_indices[-1] == chr(ord(self.in_indices[0])+len(self.in_indices)-1)
 
     def contract(self, other: 'StructuredTensor'):
-        """This modifies both current and other tensor"""
-
-        print('my old spec list', self._index_spec_list)
-        print('other old spec list', other._index_spec_list)
+        # print('', self._index_spec_list)
+        # print('other old spec list', other._index_spec_list)
 
         # relabeling invariants
         # self.input_indices are larger than any other indices
@@ -982,19 +1014,28 @@ class StructuredTensor(Tensor):
         left = StructuredTensor(self._index_spec_list, self.tensors)
         right = StructuredTensor(other._index_spec_list, other.tensors)
 
+        # assert len(set(left.in_indices).union(right.out_indices)) > 0, "Outer products not supported"
+
         # first increment (never decrement because of _check_indices_sorted invariant) indices on the right to match
         # inputs
-        incr1 = ord(left.in_indices[0]) - ord(right.out_indices[0])
+        assert len(right.out_indices) <= len(left.in_indices)
+
+        # special handling for outer products
+        if len(left.in_indices) == 0:
+            incr1 = len(set(left.out_indices + left.contracted_indices))
+        else:
+            incr1 = ord(left.in_indices[0]) - ord(right.out_indices[0])
         assert incr1 >= 0, f"Problem matching right tensor's {right.out_indices} to left tensor's {left.in_indices}, " \
                            f"we are assuming right tensors indices are incremented, never decremented"
 
         for idx in reversed(sorted(set(right.in_indices + right.out_indices + right.contracted_indices))):
             if incr1 > 0:
-                right.rename_index(idx, chr(ord(idx)+incr1), 'right')
+                right.rename_index(idx, chr(ord(idx)+incr1))
 
-        # then increment contracted+output indices of the right to avoid interfering with left uncontracted in indices
+        # then increment uncontracted+output indices of the right to avoid interfering with indices on the left
+
         # actually maybe don't need to because left's contracted indices are strictly lower
-        incr2 = len(right.out_indices) - len(left.in_indices)
+        # incr2 = len(right.out_indices) - len(left.in_indices)
         # assert incr2 >= 0, f"Right tensor has more output indices {right.out_indices} than left has input indices " \
         #                   f"{left.in_indices}"
         # for idx in left.contracted_indices:
@@ -1005,18 +1046,40 @@ class StructuredTensor(Tensor):
             # move forward by set(right.contracted_indices+right.in_indices) -
             offset = len(set(right.contracted_indices+right.in_indices))
             if offset > 0:
-                left.rename_index(idx, chr(ord(idx)+offset), 'left')
+                left.rename_index(idx, chr(ord(idx)+offset))
 
-        print('my new spec list', left._index_spec_list)
-        print('right new spec list', right._index_spec_list)
+        # print('my new spec list', left._index_spec_list)
+        # print('right new spec list', right._index_spec_list)
 
-        return StructuredTensor(left._index_spec_list + right._index_spec_list, left.tensors + right.tensors)
+        result = StructuredTensor(left._index_spec_list + right._index_spec_list, left.tensors + right.tensors)
+        print(f'contracting {self.tag} and {other.tag}')
+        print(','.join(self._index_spec_list) + ' * ' + ','.join(other._index_spec_list) + ' = ' + ','.join(result._index_spec_list))
+        return result
 
     def __mul__(self, other):
         return self.contract(other)
 
     @property
     def value(self):
+        if self.IS_DIAGONAL:  # torch.einsum doesn't support 'i->ii' kind of einsum, do it manually
+            assert len(self.in_indices) == 1, "Only support diagonal rank-2 tensors"
+            assert len(self.tensors) == 1
+            return torch.diag(self.tensors[0])
+
+        # hack to deal with diagonal tensors
+        ein_in, ein_out = self._einsum_spec.split('->')
+        new_terms = []
+        for term in ein_in.split(','):
+            if len(term) == 2 and term[0] == term[1]:
+                new_term = term[0]
+            else:
+                new_term = term
+            new_terms.append(new_term)
+
+        new_einsum_spec = ','.join(new_terms) + '->' + ein_out
+        if new_einsum_spec != self._einsum_spec:
+            print("Warning, diagonal hack")
+            return torch.einsum(new_einsum_spec, *self.tensors)
         return torch.einsum(self._einsum_spec, *self.tensors)
 
     @property

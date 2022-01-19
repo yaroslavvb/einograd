@@ -5,7 +5,7 @@ from typing import List, Tuple, Callable, Any
 
 from attrdict import AttrDict
 
-gl = AttrDict({'DEBUG': True, 'device': 'cpu', 'PURE_TENSOR_NETWORKS': True})
+gl = AttrDict({'DEBUG': True, 'device': 'cpu', 'PURE_TENSOR_NETWORKS': False, 'tensor_count': 0})
 
 
 class Operator(ABC):
