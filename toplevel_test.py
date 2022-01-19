@@ -146,37 +146,37 @@ def test_structured_tensor():
     z00 = 2*torch.ones((d, d))
 
     a = StructuredTensor(['a|b', 'b|c'], [x00, y00])
-    u.check_equal(a, x00 @ y00 )
+    u.check_equal(a, x00 @ y00)
     assert a.flops == 2*d**3
 
     x = StructuredTensor(['i|j', 'j|k', 'k|l'], [x00, y00, z00])
     u.check_equal(x, x00 @ y00 @ z00)
 
-    x = StructuredTensor(['a,b'], [x00])
-    y = StructuredTensor(['a,b'], [y00])
-    z = StructuredTensor(['a,b'], [z00])
+    x = StructuredTensor(['a|b'], [x00])
+    y = StructuredTensor(['a|b'], [y00])
+    z = StructuredTensor(['a|b'], [z00])
 
     # sanity basic FLOP counts from
     # https://www.dropbox.com/s/47jxfhkb5g9nwvb/einograd-flops-basic.pdf?dl=0
 
+    x.contract(y)
     xyz = x*y*z
-    assert xyz.flops == 400
+    assert xyz.flops == 4*d**3
     u.check_equal(xyz, x00 @ y00 @ z00)
+    sys.exit()
 
     x00 = torch.ones((d,))
     ma0 = 2*torch.ones(d, d)
     col = StructuredTensor.from_dense_vector(x00)
     row = StructuredTensor.from_dense_covector(x00)
     mat = StructuredTensor.from_dense_matrix(ma0)
-    diag = StructuredTensor.from_diag_matrix(3*x00)
-    dia0 = diag.value
 
     assert (row * mat * mat * mat).flops == 600  # reverse mode
+
     assert (mat * mat * mat * col).flops == 600  # forward mode
 
     assert (mat * mat * col * row * mat * mat).flops == 1000 # mixed mode
     assert (col * row).flops == 200                          # outer product
-    assert (row * mat * diag * mat).flops == 410             # structured reverse mode
 
     u.check_equal(row * mat * mat * mat,
                   x00 @ ma0 @ ma0 @ ma0)
@@ -185,6 +185,11 @@ def test_structured_tensor():
     colmat000 = torch.outer(x00, x00)
     u.check_equal(mat * mat * col * row * mat * mat,
                   ma0 @ ma0 @ colmat000 @ ma0 @ ma0)
+
+    diag = StructuredTensor.from_diag_matrix(3*x00)
+    dia0 = diag.value
+
+    assert (row * mat * diag * mat).flops == 410             # structured reverse mode
 
     u.check_equal(row @ mat @ diag @ mat,
                   x00 @ ma0 @ dia0 @ ma0)

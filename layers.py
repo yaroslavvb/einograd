@@ -1,5 +1,6 @@
 from typing import Dict
 
+import more_itertools
 import natsort
 import torch.nn.functional as F
 
@@ -813,7 +814,7 @@ class StructuredTensor(Tensor):
             for idx in output_indices:
                 # noinspection PyTypeChecker
                 self.index_out_tensors.setdefault(idx, []).append(tensor)
-            self.index_out_degree[idx] = self.index_out_degree.get(idx, 0) + 1
+                self.index_out_degree[idx] = self.index_out_degree.get(idx, 0) + 1
             for idx in input_indices:
                 # noinspection PyTypeChecker
                 self.index_in_tensors.setdefault(idx, []).append(tensor)
@@ -872,29 +873,147 @@ class StructuredTensor(Tensor):
         einsum_out = ''.join(self.out_indices) + ''.join(self.in_indices)
         self._einsum_spec = f'{einsum_in}->{einsum_out}'
 
-
     @staticmethod
-    def from_dense_vector(x):
+    def from_dense_vector(x: torch.Tensor):
         """Creates StructuredTensor object corresponding to given dense vector"""
-        pass
+        assert isinstance(x, torch.Tensor)
+        assert len(x.shape) == 1
+        assert x.shape[0] > 0
+        return StructuredTensor(['i|'], [x])
 
     @staticmethod
-    def from_dense_covector(x):
+    def from_dense_covector(x: torch.Tensor):
         """Creates StructuredTensor object corresponding to given dense covector"""
-        pass
+        assert isinstance(x, torch.Tensor)
+        assert len(x.shape) == 1
+        assert x.shape[0] > 0
+        return StructuredTensor(['|i'], [x])
 
     @staticmethod
-    def from_dense_matrix(x):
+    def from_dense_matrix(x: torch.Tensor):
         """Creates StructuredTensor object (LinearMap with 1 output, 1 input indices) from given matrix
         """
-        pass
+        assert isinstance(x, torch.Tensor)
+        assert len(x.shape) == 2
+        assert x.shape[0] > 0
+        assert x.shape[1] > 0
+        return StructuredTensor(['i|j'], [x])
+
+    # @staticmethod(x)
+
+    import more_itertools
+
+    def rename_index(self, old_name, new_name, tag='none'):
+        print(f"naming {tag}:{old_name} to {new_name}")
+
+        def rename_dictionary_entry(d: Dict[chr, Any], old_name: chr, new_name: chr):
+            if old_name not in d:
+                return
+            assert isinstance(d, dict)
+            assert new_name not in d
+            assert isinstance(old_name, str)
+            assert len(old_name) == 1
+            assert isinstance(new_name, str)
+            assert len(new_name) == 1
+            d[new_name] = d[old_name]
+            del d[old_name]
+
+        def rename_list_entry(l, old_name, new_name):  # {len(l.count(old_name)}!=1
+            if old_name not in l:
+                return
+            assert isinstance(l, list)
+            assert isinstance(old_name, str)
+            assert len(old_name) == 1
+            assert isinstance(new_name, str)
+            assert len(new_name) == 1
+
+            # assert l.count(old_name) == 1, f"Found  {l.count(old_name)} instances of {old_name} in {l}"
+            pos = l.index(old_name)
+            l[pos] = new_name
+
+        rename_list_entry(self.out_indices, old_name, new_name)
+        rename_list_entry(self.in_indices, old_name, new_name)
+        rename_list_entry(self.contracted_indices, old_name, new_name)
+        # _index_spec_list: List[str]  # ['ij|k', 'k|lm'] => [output1|input1,output2|input2]
+        for i, index_spec in enumerate(self._index_spec_list):
+            self._index_spec_list[i] = index_spec.replace(old_name, new_name)
+        #  _einsum_spec: str  # 'ij,jk->ik'
+        self._einsum_spec = self._einsum_spec.replace(old_name, new_name)
+        rename_dictionary_entry(self.index_degree, old_name, new_name)
+        rename_dictionary_entry(self.index_out_degree, old_name, new_name)
+        rename_dictionary_entry(self.index_in_degree, old_name, new_name)
+        rename_dictionary_entry(self.index_out_tensors, old_name, new_name)
+        rename_dictionary_entry(self.index_in_tensors, old_name, new_name)
+        rename_dictionary_entry(self.index_dim, old_name, new_name)
+        rename_list_entry(self.out_indices, old_name, new_name)
+        rename_list_entry(self.in_indices, old_name, new_name)
+        rename_list_entry(self.contracted_indices, old_name, new_name)
+
+    def _check_indices_sorted(self):
+        assert more_itertools.is_sorted(self.out_indices, strict=True)
+        assert more_itertools.is_sorted(self.contracted_indices, strict=True)
+        assert more_itertools.is_sorted(self.in_indices, strict=True)
+        assert more_itertools.is_sorted(self.out_indices + self.contracted_indices + self.in_indices, strict=True)
+
+        # check that output/input indices are consecutive
+        if self.out_indices:
+            assert self.out_indices[-1] == chr(ord(self.out_indices[0])+len(self.out_indices)-1)
+        if self.in_indices:
+            assert self.in_indices[-1] == chr(ord(self.in_indices[0])+len(self.in_indices)-1)
 
     def contract(self, other: 'StructuredTensor'):
-        # TODO(y): implement index incrementing here
-        assert 1 != 0, "not implemented"
-        print(self)
-        return other
-        # return StructuredTensor(self.indices + other.indices, self.tensors + other.tensors)
+        """This modifies both current and other tensor"""
+
+        print('my old spec list', self._index_spec_list)
+        print('other old spec list', other._index_spec_list)
+
+        # relabeling invariants
+        # self.input_indices are larger than any other indices
+        # other.contracted_indices + output_indices are larger than input indices
+        #
+        # increment all indices of "other" to make all k "other" input indices match first k self "output" indices
+        # increment remaining self.output indices to be larger than largest input index.
+
+        # is_sorted:
+
+        self._check_indices_sorted()
+        other._check_indices_sorted()
+
+        left = StructuredTensor(self._index_spec_list, self.tensors)
+        right = StructuredTensor(other._index_spec_list, other.tensors)
+
+        # first increment (never decrement because of _check_indices_sorted invariant) indices on the right to match
+        # inputs
+        incr1 = ord(left.in_indices[0]) - ord(right.out_indices[0])
+        assert incr1 >= 0, f"Problem matching right tensor's {right.out_indices} to left tensor's {left.in_indices}, " \
+                           f"we are assuming right tensors indices are incremented, never decremented"
+
+        for idx in reversed(sorted(set(right.in_indices + right.out_indices + right.contracted_indices))):
+            if incr1 > 0:
+                right.rename_index(idx, chr(ord(idx)+incr1), 'right')
+
+        # then increment contracted+output indices of the right to avoid interfering with left uncontracted in indices
+        # actually maybe don't need to because left's contracted indices are strictly lower
+        incr2 = len(right.out_indices) - len(left.in_indices)
+        # assert incr2 >= 0, f"Right tensor has more output indices {right.out_indices} than left has input indices " \
+        #                   f"{left.in_indices}"
+        # for idx in left.contracted_indices:
+
+        # finally, increment uncontracted input indices on the left to avoid interfering with contracted/input indices
+        # left.input_indices except left's contracted input indices incremented by
+        for idx in set(left.in_indices).difference(right.out_indices):
+            # move forward by set(right.contracted_indices+right.in_indices) -
+            offset = len(set(right.contracted_indices+right.in_indices))
+            if offset > 0:
+                left.rename_index(idx, chr(ord(idx)+offset), 'left')
+
+        print('my new spec list', left._index_spec_list)
+        print('right new spec list', right._index_spec_list)
+
+        return StructuredTensor(left._index_spec_list + right._index_spec_list, left.tensors + right.tensors)
+
+    def __mul__(self, other):
+        return self.contract(other)
 
     @property
     def value(self):
