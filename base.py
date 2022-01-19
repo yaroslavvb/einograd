@@ -10,72 +10,9 @@ gl = AttrDict({'DEBUG': True, 'device': 'cpu', 'PURE_TENSOR_NETWORKS': False,
                'ALLOW_UNSORTED_INDICES': False})
 
 
-class Operator(ABC):
-    other: 'Function'
-
-    def __call__(self, other):
-        pass
-
-    # def __matmul__(self, other):
-    #    return OperatorComposition([self, other])
-
-
-# We only have 1 Operator for now. Later could add Trace operator, but don't need to separate
-# composition logic for now
-class OperatorComposition:
-    children: List[Operator]
-
-    def __init__(self, children):
-        self.children = children
-
-    # composition operation
-    def __matmul__(self, other):
-        if isinstance(other, Operator):
-            return OperatorComposition([self, other])
-        else:
-            return NotImplemented
-
-
-class Function(ABC):
-    """Differentiable function"""
-
-    @abstractmethod
-    def __call__(self, t: 'Tensor'):
-        pass
-
-    @abstractmethod
-    def in_dims(self):
-        """Input (lower) dimensions"""
-        pass
-
-    @abstractmethod
-    def out_dims(self):
-        """Output (upper) dimensions"""
-        pass
-
-    """
-    def __matmul__(self, other):
-        if isinstance(other, Function):
-            return FunctionComposition([self, other])
-        else:
-            return NotImplemented
-    """
-
-
-class AtomicFunction(Function):
-    @property
-    def d1(self):
-        return self.d(1)
-
-    @abstractmethod
-    def d(self, order: int):
-        pass
-
-
-class LinearizedFunction(ABC):
-    """This represents a function which outputs Tensor objects."""
-    pass
-
+##################################################
+# Tensors
+##################################################
 
 class Tensor(ABC):
     """
@@ -100,6 +37,20 @@ class Tensor(ABC):
     @abstractmethod
     def out_dims(self):
         pass
+
+
+class ZeroTensor(Tensor):
+    """Arbitrary shape tensor of zeros"""
+
+    def in_dims(self):
+        return ()
+
+    def out_dims(self):
+        return ()
+
+
+zero = ZeroTensor()
+Zero = ZeroTensor()  # TODO(y) remove one of the zeros
 
 
 class Scalar(Tensor, ABC):
@@ -163,6 +114,163 @@ class SymmetricBilinearMap(Tensor, ABC):
     def in_dims(self) -> Tuple[int]:
         pass
 
+
+class IdentityLinearMap(Tensor):
+    """tensor representing identity linear map"""
+
+    def in_dims(self):
+        return ()
+
+    def out_dims(self):
+        return ()
+
+
+##################################################
+# Functions
+##################################################
+
+
+class Function(ABC):
+    """Differentiable function"""
+
+    @abstractmethod
+    def __call__(self, t: 'Tensor'):
+        pass
+
+    @abstractmethod
+    def in_dims(self):
+        """Input (lower) dimensions"""
+        pass
+
+    @abstractmethod
+    def out_dims(self):
+        """Output (upper) dimensions"""
+        pass
+
+
+class FunctionSharedImpl(ABC):
+    # addition
+    def __add__(self, other: Function):
+        assert isinstance(other, Function)
+        if isinstance(self, FunctionAddition):
+            return FunctionAddition(self.children + [other])
+        else:
+            return FunctionAddition([self, other])
+
+    # contraction
+    def __mul__(self, other: Function):
+        assert isinstance(other, Function)
+        if isinstance(self, FunctionContraction):
+            return FunctionContraction(self.children + [other])
+        else:
+            return FunctionContraction([self, other])
+
+    # composition
+    def __matmul__(self, other: Function):
+        assert isinstance(other, Function)
+
+        if isinstance(self, FunctionComposition):
+            return FunctionComposition(self.children + [other])
+        else:
+            return FunctionComposition([self, other])
+
+
+class CompositeFunction(Function, FunctionSharedImpl, ABC):
+    """Function defined as a combination of AtomicFunction objects using +, *, @"""
+
+    children: List[Function]
+
+    # TODO(y) drop dimensions? These are are only needed at tensor level
+    def out_dims(self):
+        pass
+
+    def in_dims(self):
+        pass
+
+
+class FunctionAddition(CompositeFunction):
+    def __init__(self, children: List['Function']):
+        # Must have two children. Otherwise, it's harder to tell if two functions are the same
+        # ie, FunctionAddition([f]) == FunctionContraction([f])
+        assert len(children) > 2
+        self.children = children
+
+    def __call__(self, t: 'Tensor'):
+        result = self.children[0]
+        for c in self.children[1:]:
+            result = result + c(t)
+        return result
+
+
+class FunctionContraction(CompositeFunction):
+    def __init__(self, children: List['Function']):
+        assert len(children) > 2
+        self.children = children
+
+    def __call__(self, t: 'Tensor'):
+        result = self.children[0]
+        for c in self.children[1:]:
+            result = result * c(t)
+        return result
+
+
+class FunctionComposition(CompositeFunction):
+    def __init__(self, children: List['Function']):
+        assert len(children) > 2
+        self.children = children
+
+    def __call__(self, t: 'Tensor'):
+        result = self.children[-1]
+        for c in self.children[:-1]:
+            result = c(result)
+        return result
+
+
+class AtomicFunction(Function, FunctionSharedImpl):
+    @property
+    def d1(self):
+        return self.d(1)
+
+    @abstractmethod
+    def d(self, order: int):
+        pass
+
+
+class LinearizedFunction(ABC):
+    """This represents a function which outputs Tensor objects."""
+    pass
+
+
+##################################################
+# Operators
+##################################################
+
+class Operator(ABC):
+    other: 'Function'
+
+    def __call__(self, other):
+        pass
+
+    # def __matmul__(self, other):
+    #    return OperatorComposition([self, other])
+
+
+# We only have 1 Operator for now. Later could add Trace operator, but don't need to separate
+# composition logic for now
+class OperatorComposition:
+    children: List[Operator]
+
+    def __init__(self, children):
+        self.children = children
+
+    # composition operation
+    def __matmul__(self, other):
+        if isinstance(other, Operator):
+            return OperatorComposition([self, other])
+        else:
+            return NotImplemented
+
+
 class D_(Operator):
     """Differentiation of arbitrary order. IE D_(1) for derivative, D_(2) for Hessian"""
     order: int
@@ -188,4 +296,4 @@ class D_(Operator):
 
 
 D = D_(order=1)
-D2 = D@D
+D2 = D @ D

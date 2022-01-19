@@ -104,31 +104,6 @@ class ContractibleTensor(Tensor, ABC):
         return str(self.value)
 
 
-class ZeroTensor(Tensor):
-    """Arbitrary shape tensor of zeros"""
-
-    def in_dims(self):
-        return ()
-
-    def out_dims(self):
-        return ()
-
-
-class IdentityLinearMap(Tensor):
-    """tensor representing identity linear map"""
-
-    def in_dims(self):
-        return ()
-
-    def out_dims(self):
-        return ()
-
-
-zero = ZeroTensor()
-Zero = ZeroTensor()  # TODO(y) remove one of the zeros
-One = IdentityLinearMap()
-
-
 class DenseScalar(Scalar):
     def __init__(self, value):
         value = to_pytorch(value)
@@ -354,6 +329,7 @@ class DLeastSquares(AtomicFunction, LinearizedFunction):
             return NotImplemented
 
 
+# TODO(y): rename to IdentityLayer (to disambig from IdentityLinearMap)
 class Identity(AtomicFunction):
     def __init__(self, dim: int):
         self._in_dims = (dim,)
