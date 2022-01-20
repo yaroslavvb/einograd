@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, Any
 
 import more_itertools
 import natsort
@@ -15,10 +15,9 @@ from util import *
 _idx0 = 'a'
 
 
-class ContractibleTensor(Tensor, ABC):
+class OldContractibleTensor(Tensor, ABC):
     """
-    Tensor is split into 2, abstract API is in Tensor, reusable implementation details are in
-    ContractibleTensor
+    Original implementation, only supports 1 and 2 index contractions
     """
 
     @property
@@ -63,7 +62,7 @@ class ContractibleTensor(Tensor, ABC):
 
     def __mul__(self, other):
         # print('other is ', other)
-        assert isinstance(other, ContractibleTensor), f"contracting tensor with {type(other)}"
+        assert isinstance(other, OldContractibleTensor), f"contracting tensor with {type(other)}"
 
         t1 = self
         t2 = other
@@ -123,7 +122,7 @@ class DenseScalar(Scalar):
         return self._value
 
 
-class DenseVector(Vector, ContractibleTensor):
+class DenseVector(Vector, OldContractibleTensor):
     _value: torch.Tensor
     _out_dims: Tuple[int]
 
@@ -151,7 +150,7 @@ class DenseVector(Vector, ContractibleTensor):
         return DenseCovector(self._value)
 
 
-class DenseCovector(Covector, ContractibleTensor):
+class DenseCovector(Covector, OldContractibleTensor):
     _value: torch.Tensor
     _in_dims: Tuple[int]
 
@@ -179,7 +178,7 @@ class DenseCovector(Covector, ContractibleTensor):
         return DenseCovector(self._value)
 
 
-class DenseSymmetricBilinear(SymmetricBilinearMap, ContractibleTensor):
+class DenseSymmetricBilinear(SymmetricBilinearMap, OldContractibleTensor):
     """Symmetric bilinear map represented with a rank-3 tensor"""
 
     def __init__(self, value):
@@ -206,7 +205,7 @@ class DenseSymmetricBilinear(SymmetricBilinearMap, ContractibleTensor):
         return self._value
 
 
-class DenseQuadraticForm(QuadraticForm, ContractibleTensor):
+class DenseQuadraticForm(QuadraticForm, OldContractibleTensor):
     """Symmetric bilinear map represented with a rank-2 tensor"""
 
     def __init__(self, value):
@@ -232,7 +231,7 @@ class DenseQuadraticForm(QuadraticForm, ContractibleTensor):
         return self._value
 
 
-class DenseLinear(LinearMap, ContractibleTensor):
+class DenseLinear(LinearMap, OldContractibleTensor):
     """Symmetric linear map represented with a rank-2 tensor"""
 
     def __init__(self, value):
@@ -378,7 +377,7 @@ class DIdentity(AtomicFunction):
 
     def d(self, order=1):
         if order == 1:
-            return One
+            return IdentityLinearMap()
         elif order >= 2:
             return Zero
 
@@ -509,7 +508,7 @@ class DSigmoid(AtomicFunction, LinearizedFunction):
     def d(self, order=1):
         return DSigmoid(self._in_dims[0], order=self.order + order)
 
-    def __call__(self, x: Tensor) -> ContractibleTensor:
+    def __call__(self, x: Tensor) -> OldContractibleTensor:
         x = x.value
         s = torch.sigmoid(x)
         if self.order == 1:
@@ -891,7 +890,7 @@ class StructuredTensor(Tensor):
         assert x.shape[0] > 0
         if idx is None:
             idx = ''.join(chr(i) for i in range(ord('i'), ord('i')+len(x.shape)))
-        return StructuredTensor([idx+'|'], [x], tag)
+        return StructuredTensor([idx + '|'], [x], tag)
 
     @staticmethod
     def from_dense_covector(x: torch.Tensor, tag: str = None, idx: str = None):
@@ -900,7 +899,7 @@ class StructuredTensor(Tensor):
         assert x.shape[0] > 0
         if idx is None:
             idx = ''.join(chr(i) for i in range(ord('i'), ord('i')+len(x.shape)))
-        return StructuredTensor(['|'+idx], [x], tag)
+        return StructuredTensor(['|' + idx], [x], tag)
 
     @staticmethod
     def from_dense_matrix(x: torch.Tensor, tag: str = None, idx: str = None):

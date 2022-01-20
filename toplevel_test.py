@@ -274,7 +274,99 @@ def test_structured_tensor():
     u.check_equal(mat * mat * col * row * mat * mat,
                   ma0 @ ma0 @ colmat000 @ ma0 @ ma0)
 
-    diag = StructuredTensor.from_diag_matrix(3*x00, 'diag')
+    diag = StructuredTensor.from_diag_matrix(3 * x00, 'diag')
+    dia0 = diag.value
+    print(dia0)
+
+    assert (row * mat * diag * mat).flops == 410             # structured reverse mode
+
+    print()
+    u.check_equal(row * mat * diag * mat,
+                  x00 @ ma0 @ dia0 @ ma0)
+
+    # 3 x 2 grid example from "3 decompositions" section of
+    # https://notability.com/n/wNU5UXNGENsmRBzMFDSJQ
+    d = 2
+    rank2 = torch.ones((d, d))
+    rank3 = torch.ones((d, d, d))
+    A = StructuredTensor.from_dense_covector(rank2, idx='ij', tag='A')
+    B = StructuredTensor.from_dense_linearmap(rank3, idx='i|ml', tag='B')
+    # C = StructuredTensor.from_dense_linearmap(rank2, idx='l|o', tag='C')
+    # D = StructuredTensor.from_dense_linearmap(rank2, idx='j|k', tag='D')
+    # E = StructuredTensor.from_dense_linearmap(rank3, idx='km|n', tag='E')
+    # F = StructuredTensor.from_dense_vector(rank2, idx='no', tag='F')
+    print(A * B)
+    # K = A * B
+    # K = A * B * C * D * E * F
+    # disable some error checks
+    # gl.ALLOW_PARTIAL_CONTRACTIONS = True
+    # gl.ALLOW_UNSORTED_INDICES = True
+    # K = A * B * C * D
+    # TODO(y): non-determinism (probably because using set)
+    #    print(K.value)
+    #    print(K.flops)
+
+def test_contractible_tensor():
+    d = 10
+    x00 = torch.ones((d, d))
+    y00 = torch.ones((d, d))
+    z00 = 2*torch.ones((d, d))
+
+    a = ContractibleTensor(['a|b', 'b|c'], [x00, y00])
+    u.check_equal(a, x00 @ y00)
+    assert a.flops == 2*d**3
+
+    x = ContractibleTensor(['i|j', 'j|k', 'k|l'], [x00, y00, z00])
+    u.check_equal(x, x00 @ y00 @ z00)
+
+    x = ContractibleTensor(['a|b'], [x00])
+    y = ContractibleTensor(['a|b'], [y00])
+    z = ContractibleTensor(['a|b'], [z00])
+
+    # sanity basic FLOP counts from
+    # https://www.dropbox.com/s/47jxfhkb5g9nwvb/einograd-flops-basic.pdf?dl=0
+
+    a = ContractibleTensor(['a|b'], [x00])
+    b = ContractibleTensor(['a|b'], [x00])
+    print('----')
+
+    print(a)
+    print('----')
+    sys.exit()
+    c = a * b
+    assert c.index_spec_list == ['a|b','b|c']
+
+    print('----')
+    print(c)
+    print('----')
+    sys.exit()
+
+    x.contract(y)
+    xyz = x*y*z
+    assert xyz.flops == 4*d**3
+    u.check_equal(xyz, x00 @ y00 @ z00)
+
+    x00 = torch.ones((d,))
+    ma0 = 2*torch.ones(d, d)
+    col = StructuredTensor.from_dense_vector(x00, 'col')
+    row = StructuredTensor.from_dense_covector(x00, 'row')
+    mat = StructuredTensor.from_dense_matrix(ma0, 'mat')
+
+    assert (row * mat * mat * mat).flops == 600  # reverse mode
+    assert (mat * mat * mat * col).flops == 600  # forward mode
+
+    #    assert (mat * mat * col * row * mat * mat).flops == 1000 # mixed mode
+    assert (col * row).flops == d*d                          # outer product
+
+    u.check_equal(row * mat * mat * mat,
+                  x00 @ ma0 @ ma0 @ ma0)
+    u.check_equal(mat * mat * mat * col,
+                  ma0 @ ma0 @ ma0 @ x00)
+    colmat000 = torch.outer(x00, x00)
+    u.check_equal(mat * mat * col * row * mat * mat,
+                  ma0 @ ma0 @ colmat000 @ ma0 @ ma0)
+
+    diag = StructuredTensor.from_diag_matrix(3 * x00, 'diag')
     dia0 = diag.value
     print(dia0)
 
@@ -466,6 +558,8 @@ def run_all():
     test_least_squares()
     test_contraction()
     test_structured_tensor()
+    test_contractible_tensor()
+    #test_derivatives()
 
 if __name__ == '__main__':
     run_all()
