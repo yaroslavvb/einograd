@@ -772,8 +772,8 @@ class StructuredTensor(Tensor):
         if tag is not None:
             self.tag = tag
         else:
-            self.tag = f'tensor{gl.tensor_count:02d}'
-            gl.tensor_count += 1
+            self.tag = f'tensor{GLOBALS.tensor_count:02d}'
+            GLOBALS.tensor_count += 1
 
         index_spec_list = index_spec_list.copy()
 
@@ -807,7 +807,7 @@ class StructuredTensor(Tensor):
             else:
                 self.IS_DIAGONAL = False
                 assert len(all_indices_tensor) == len(set(all_indices_tensor))
-            if gl.PURE_TENSOR_NETWORKS:  # this disallows diagonal tensors
+            if GLOBALS.PURE_TENSOR_NETWORKS:  # this disallows diagonal tensors
                 assert not set(input_indices).intersection(set(output_indices))
 
             all_indices.update(set(all_indices_tensor))
@@ -847,7 +847,7 @@ class StructuredTensor(Tensor):
             if out_count and in_count:
                 if not self.IS_DIAGONAL:
                     assert out_count == in_count
-                if gl.PURE_TENSOR_NETWORKS:
+                if GLOBALS.PURE_TENSOR_NETWORKS:
                     assert out_count == 1  # in pure tensor networks, each index is contracted at most once
                 else:
                     assert out_count <= 2, f"Index {idx} is contravariant in {out_count} tensors, suspicious," \
@@ -880,6 +880,8 @@ class StructuredTensor(Tensor):
             self._einsum_spec = f'{input_indices}->{einsum_in}'
             self.in_indices = list(input_indices)
             self.out_indices = list(output_indices)
+            # import pdb; pdb.set_trace()
+
         else:
             self._einsum_spec = f'{einsum_in}->{einsum_out}'
 
@@ -986,7 +988,7 @@ class StructuredTensor(Tensor):
             assert self.out_indices[-1] == chr(ord(self.out_indices[0])+len(self.out_indices)-1)
         # input indices won't be consecutive after partial contractions
         if self.in_indices:
-            if not gl.ALLOW_PARTIAL_CONTRACTIONS:
+            if not GLOBALS.ALLOW_PARTIAL_CONTRACTIONS:
                 assert self.in_indices[-1] == chr(ord(self.in_indices[0])+len(self.in_indices)-1)
 
     def contract(self, other: 'StructuredTensor'):
@@ -1019,7 +1021,7 @@ class StructuredTensor(Tensor):
             incr1 = len(set(left.out_indices + left.contracted_indices))
         else:
             incr1 = ord(left.in_indices[0]) - ord(right.out_indices[0])
-        if not gl.ALLOW_UNSORTED_INDICES:
+        if not GLOBALS.ALLOW_UNSORTED_INDICES:
             assert incr1 >= 0, f"Problem matching right tensor's {right.out_indices} to left tensor's {left.in_indices}, " \
                            f"we are assuming right tensors indices are incremented, never decremented"
 
