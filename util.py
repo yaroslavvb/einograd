@@ -1,5 +1,6 @@
 import inspect
 import time
+from typing import List, Tuple, Dict, Any
 
 import numpy as np
 import torch
@@ -159,6 +160,15 @@ class timeit:
         self.end = time.perf_counter()
         interval_ms = 1000 * (self.end - self.start)
         print(f"{interval_ms:8.2f}   {self.tag}")
+
+def freeze_multimap(idx_to_dim) -> Dict[Any, Tuple]:
+    """Freezes dictionary {a->[], b->[]}"""
+    # TODO(y) doesn't fully freeze since dictionaries are mutable
+    d = {}
+    for (key, value) in idx_to_dim.items():
+        assert isinstance(value, List) or isinstance(value, Tuple)
+        d[key] = tuple(value)
+    return d
 
 
 def run_all_tests(module):
