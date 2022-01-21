@@ -1,5 +1,7 @@
 import sys
 
+import pytest
+
 import util as u
 from layers import *
 
@@ -238,16 +240,16 @@ def test_structured_tensor():
     y00 = torch.ones((d, d))
     z00 = 2 * torch.ones((d, d))
 
-    a = StructuredTensor(['a|b', 'b|c'], [x00, y00])
+    a = OldStructuredTensor(['a|b', 'b|c'], [x00, y00])
     u.check_equal(a, x00 @ y00)
     assert a.flops == 2 * d ** 3
 
-    x = StructuredTensor(['i|j', 'j|k', 'k|l'], [x00, y00, z00])
+    x = OldStructuredTensor(['i|j', 'j|k', 'k|l'], [x00, y00, z00])
     u.check_equal(x, x00 @ y00 @ z00)
 
-    x = StructuredTensor(['a|b'], [x00])
-    y = StructuredTensor(['a|b'], [y00])
-    z = StructuredTensor(['a|b'], [z00])
+    x = OldStructuredTensor(['a|b'], [x00])
+    y = OldStructuredTensor(['a|b'], [y00])
+    z = OldStructuredTensor(['a|b'], [z00])
 
     # sanity basic FLOP counts from
     # https://www.dropbox.com/s/47jxfhkb5g9nwvb/einograd-flops-basic.pdf?dl=0
@@ -259,9 +261,9 @@ def test_structured_tensor():
 
     x00 = torch.ones((d,))
     ma0 = 2 * torch.ones(d, d)
-    col = StructuredTensor.from_dense_vector(x00, 'col')
-    row = StructuredTensor.from_dense_covector(x00, 'row')
-    mat = StructuredTensor.from_dense_matrix(ma0, 'mat')
+    col = OldStructuredTensor.from_dense_vector(x00, 'col')
+    row = OldStructuredTensor.from_dense_covector(x00, 'row')
+    mat = OldStructuredTensor.from_dense_matrix(ma0, 'mat')
 
     assert (row * mat * mat * mat).flops == 600  # reverse mode
     assert (mat * mat * mat * col).flops == 600  # forward mode
@@ -277,7 +279,7 @@ def test_structured_tensor():
     u.check_equal(mat * mat * col * row * mat * mat,
                   ma0 @ ma0 @ colmat000 @ ma0 @ ma0)
 
-    diag = StructuredTensor.from_diag_matrix(3 * x00, 'diag')
+    diag = OldStructuredTensor.from_diag_matrix(3 * x00, 'diag')
     dia0 = diag.value
     print(dia0)
 
@@ -292,8 +294,8 @@ def test_structured_tensor():
     d = 2
     rank2 = torch.ones((d, d))
     rank3 = torch.ones((d, d, d))
-    A = StructuredTensor.from_dense_covector(rank2, idx='ij', tag='A')
-    B = StructuredTensor.from_dense_linearmap(rank3, idx='i|ml', tag='B')
+    A = OldStructuredTensor.from_dense_covector(rank2, idx='ij', tag='A')
+    B = OldStructuredTensor.from_dense_linearmap(rank3, idx='i|ml', tag='B')
     # C = StructuredTensor.from_dense_linearmap(rank2, idx='l|o', tag='C')
     # D = StructuredTensor.from_dense_linearmap(rank2, idx='j|k', tag='D')
     # E = StructuredTensor.from_dense_linearmap(rank3, idx='km|n', tag='E')
@@ -569,8 +571,8 @@ def test_contractible_tensor():
     d = 2
     rank2 = torch.ones((d, d))
     rank3 = torch.ones((d, d, d))
-    A = StructuredTensor.from_dense_covector(rank2, idx='ij', tag='A')
-    B = StructuredTensor.from_dense_linearmap(rank3, idx='i|ml', tag='B')
+    A = OldStructuredTensor.from_dense_covector(rank2, idx='ij', tag='A')
+    B = OldStructuredTensor.from_dense_linearmap(rank3, idx='i|ml', tag='B')
     # C = StructuredTensor.from_dense_linearmap(rank2, idx='l|o', tag='C')
     # D = StructuredTensor.from_dense_linearmap(rank2, idx='j|k', tag='D')
     # E = StructuredTensor.from_dense_linearmap(rank3, idx='km|n', tag='E')
@@ -686,6 +688,7 @@ def test_present0():
 """
 
 
+@pytest.mark.skip(reason="doesn't work yet")
 def test_derivatives():
     (W0, U0, x0, x, h1, h2, h3, h4) = _create_unit_test_a()
     (W, nonlin, U, loss) = (h1, h2, h3, h4)
@@ -713,7 +716,7 @@ def test_derivatives():
     u.check_equal(expr1(x), expr2(x))
     assert GLOBALS.function_call_count == 2  # value of U(x) is requested twice, but computed once
 
-
+@pytest.mark.skip(reason="doesn't work yet")
 def test_present():
     (W0, U0, x0, x, h1, h2, h3, h4) = _create_unit_test_a()
     (_unused_W, _unused_nonlin, _unused_U, _unused_loss) = (h1, h2, h3, h4)

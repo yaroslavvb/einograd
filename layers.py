@@ -723,7 +723,7 @@ class MemoizedFunctionComposition:
             return result.value
 
 
-class StructuredTensor(Tensor):
+class OldStructuredTensor(Tensor):
     # tensor in a structured form (einsum)
     # it supports lazy contraction with other tensors, calculating flop counts
     # performing the calculation
@@ -892,7 +892,7 @@ class StructuredTensor(Tensor):
         assert x.shape[0] > 0
         if idx is None:
             idx = ''.join(chr(i) for i in range(ord('i'), ord('i')+len(x.shape)))
-        return StructuredTensor([idx + '|'], [x], tag)
+        return OldStructuredTensor([idx + '|'], [x], tag)
 
     @staticmethod
     def from_dense_covector(x: torch.Tensor, tag: str = None, idx: str = None):
@@ -901,7 +901,7 @@ class StructuredTensor(Tensor):
         assert x.shape[0] > 0
         if idx is None:
             idx = ''.join(chr(i) for i in range(ord('i'), ord('i')+len(x.shape)))
-        return StructuredTensor(['|' + idx], [x], tag)
+        return OldStructuredTensor(['|' + idx], [x], tag)
 
     @staticmethod
     def from_dense_matrix(x: torch.Tensor, tag: str = None, idx: str = None):
@@ -911,11 +911,11 @@ class StructuredTensor(Tensor):
         assert len(x.shape) == 2
         assert x.shape[0] > 0
         assert x.shape[1] > 0
-        return StructuredTensor(['i|j'], [x], tag)
+        return OldStructuredTensor(['i|j'], [x], tag)
 
     @staticmethod
     def from_dense_linearmap(x: torch.Tensor, tag: str = None, idx: str = None):
-        return StructuredTensor([idx], [x], tag)
+        return OldStructuredTensor([idx], [x], tag)
 
     @staticmethod
     def from_diag_matrix(x: torch.Tensor, tag: str = None):
@@ -924,7 +924,7 @@ class StructuredTensor(Tensor):
         assert isinstance(x, torch.Tensor)
         assert len(x.shape) == 1
         assert x.shape[0] > 0
-        return StructuredTensor(['i|i'], [x], tag)
+        return OldStructuredTensor(['i|i'], [x], tag)
 
     # @staticmethod(x)
 
@@ -991,7 +991,7 @@ class StructuredTensor(Tensor):
             if not GLOBALS.ALLOW_PARTIAL_CONTRACTIONS:
                 assert self.in_indices[-1] == chr(ord(self.in_indices[0])+len(self.in_indices)-1)
 
-    def contract(self, other: 'StructuredTensor'):
+    def contract(self, other: 'OldStructuredTensor'):
         # print('', self._index_spec_list)
         # print('other old spec list', other._index_spec_list)
 
@@ -1007,8 +1007,8 @@ class StructuredTensor(Tensor):
         self._check_indices_sorted()
         other._check_indices_sorted()
 
-        left = StructuredTensor(self._index_spec_list, self.tensors)
-        right = StructuredTensor(other._index_spec_list, other.tensors)
+        left = OldStructuredTensor(self._index_spec_list, self.tensors)
+        right = OldStructuredTensor(other._index_spec_list, other.tensors)
 
         # assert len(set(left.in_indices).union(right.out_indices)) > 0, "Outer products not supported"
 
@@ -1049,7 +1049,7 @@ class StructuredTensor(Tensor):
         # print('my new spec list', left._index_spec_list)
         # print('right new spec list', right._index_spec_list)
 
-        result = StructuredTensor(left._index_spec_list + right._index_spec_list, left.tensors + right.tensors)
+        result = OldStructuredTensor(left._index_spec_list + right._index_spec_list, left.tensors + right.tensors)
         print(f'contracting {self.tag} and {other.tag}')
         print(','.join(self._index_spec_list) + ' * ' + ','.join(other._index_spec_list) + ' = ' + ','.join(result._index_spec_list))
         return result
@@ -1164,7 +1164,7 @@ class TensorContractionChain:
 
     """
 
-    children: List[StructuredTensor]
+    children: List[OldStructuredTensor]
 
     @property
     def flops(self):
