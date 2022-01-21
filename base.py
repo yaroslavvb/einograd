@@ -118,8 +118,8 @@ class TensorContraction(Tensor):
 
     # see UnitTestB for illustration
     _original_specs: Tuple[Tuple]  # [('ab|cd', A, 'A'), ...]
-    tensor_specs: List[str]  # [ab|cd, c|c, cd|ef], has to be a list because of relabeling function
-    tensor_specs_str: str    # ab|cd,cd|ef->ab|ef
+    children_specs: List[str]  # [ab|cd, c|c, cd|ef], has to be a list because of relabeling function
+    children_specs_str: str    # ab|cd,cd|ef->ab|ef
     tensors: Tuple[torch.Tensor]  # [ones((2,3,2,2)), ones((2,), ones((2, 2, 2, 4))]
     tensor_labels: Tuple[str]  # ['A', 'B', 'C']
 
@@ -137,7 +137,7 @@ class TensorContraction(Tensor):
     _einsum_str: str  # 'abcd,c,cdef->abef'
 
     @staticmethod
-    def __legacy_init__(index_spec_list, tensors, tag=None):
+    def __legacy_init__(index_spec_list, tensors, tag=None) -> 'TensorContraction':
         return TensorContraction(list((i, t) for (i, t) in zip(index_spec_list, tensors)))
 
     def __init__(self, specs: List[Tuple], label=None):
@@ -154,7 +154,7 @@ class TensorContraction(Tensor):
         """
         self._original_specs = tuple(specs)
 
-        tensor_specs: List[str] = []
+        children_specs: List[str] = []
         tensors: List[torch.Tensor] = []
         tensor_labels: List[str] = []
         for spec in specs:
@@ -171,11 +171,11 @@ class TensorContraction(Tensor):
             assert isinstance(tensor_data, torch.Tensor), f"Provided not an instance of torch.Tensor for {tensor_spec}, " \
                                                      f"{tensor_label}, instead see type {type(tensor_data)}"
 
-            tensor_specs.append(tensor_spec)
+            children_specs.append(tensor_spec)
             tensors.append(tensor_data)
             tensor_labels.append(tensor_label)
 
-        self.tensor_specs = list(tensor_specs)
+        self.children_specs = list(children_specs)
         self.tensors = tuple(tensors)
         self.tensor_labels = tuple(tensor_labels)
         self.label = label if label is not None else GLOBALS.generate_tensor_name()
@@ -187,7 +187,7 @@ class TensorContraction(Tensor):
         idx_to_in_tensors: Dict[chr, List[int]] = {}
         idx_to_diag_tensors: Dict[chr, List[int]] = {}
 
-        all_indices = set(''.join(tensor_specs).replace('|', ''))
+        all_indices = set(''.join(children_specs).replace('|', ''))
         assert ' ' not in all_indices
         for idx in all_indices:
             idx_to_out_tensors.setdefault(idx, [])
@@ -195,7 +195,7 @@ class TensorContraction(Tensor):
             idx_to_diag_tensors.setdefault(idx, [])
 
         # for each index, get a list of tensors for which it's contravariant-only (out), covariant-only (in) or both (diagonal)
-        for tensor_id, (tensor_spec, tensor_data) in enumerate(zip(self.tensor_specs, self.tensors)):
+        for tensor_id, (tensor_spec, tensor_data) in enumerate(zip(self.children_specs, self.tensors)):
             out_idx_term, in_idx_term = tensor_spec.split('|')
             for idx in out_idx_term:
                 if idx not in in_idx_term:
@@ -255,14 +255,14 @@ class TensorContraction(Tensor):
         print(self.in_idx)
         print(self.diag_idx)
 
-        self.tensor_specs_str = f"{','.join(tensor_specs)}->{''.join(list(self.out_idx))}|{''.join(list(self.in_idx))}"
+        self.children_specs_str = f"{','.join(children_specs)}->{''.join(list(self.out_idx))}|{''.join(list(self.in_idx))}"
 
         if not self.diag_idx:    # einsum can't materialize diagonal tensors, don't generate string here
-            einsum_in = ','.join(self._process_for_einsum(tensor_spec) for tensor_spec in self.tensor_specs)
+            einsum_in = ','.join(self._process_for_einsum(tensor_spec) for tensor_spec in self.children_specs)
             einsum_out = ''.join(self.out_idx) + ''.join(self.in_idx)
             self._einsum_spec = f'{einsum_in}->{einsum_out}'
         else:
-            print("diagonal tensor, no einsum for " +','.join(self.tensor_specs))
+            print("diagonal tensor, no einsum for " +','.join(self.children_specs))
             self._einsum_spec = None   # unsupported by torch.einsum
         print('***', self._einsum_spec)
 
@@ -372,7 +372,7 @@ class TensorContraction(Tensor):
         out_dim_spec = ','.join(str(d) for d in self.out_dims)
         in_dim_spec = ','.join(str(d) for d in self.in_dims)
         dim_spec = f"{out_dim_spec}|{in_dim_spec}"
-        return f"{dim_spec} '{self.label}', out({','.join(self.out_idx)}), in({','.join(self.in_idx)}), spec: {','.join(self.tensor_specs)}"
+        return f"{dim_spec} '{self.label}', out({','.join(self.out_idx)}), in({','.join(self.in_idx)}), spec: {','.join(self.children_specs)}"
 
     def __repr__(self):
         return self.__str__()
@@ -411,9 +411,9 @@ class TensorContraction(Tensor):
         rename_list_entry(self.out_idx, old_name, new_name)
         rename_list_entry(self.in_idx, old_name, new_name)
         rename_list_entry(self.contracted_idx, old_name, new_name)
-        # tensor_specs: List[str]  # ['ij|k', 'k|lm'] => [output1|input1,output2|input2]
-        for i, index_spec in enumerate(self.tensor_specs):
-            self.tensor_specs[i] = index_spec.replace(old_name, new_name)  # ab|c -> de|c
+        # children_specs: List[str]  # ['ij|k', 'k|lm'] => [output1|input1,output2|input2]
+        for i, index_spec in enumerate(self.children_specs):
+            self.children_specs[i] = index_spec.replace(old_name, new_name)  # ab|c -> de|c
         #  _einsum_spec: str  # 'ij,jk->ik'
         if self._einsum_spec:
             self._einsum_spec = self._einsum_spec.replace(old_name, new_name)
@@ -471,7 +471,7 @@ class TensorContraction(Tensor):
         # rename indices of right to avoid clashes
         if len(right.contracted_idx + right.in_idx):
             print('before step 1 rename')
-            print(right.tensor_specs)
+            print(right.children_specs)
 
             max_renames = len(right.contracted_idx + right.in_idx)
             new_indices = left._generate_unused_indices(other=right, count=max_renames)
@@ -486,28 +486,28 @@ class TensorContraction(Tensor):
 
         # match right's out indices to left's in indices
         # left tensor may have more indices than right, this happens in Hessian-vector product
-        print('before step 2 rename', left.tensor_specs, right.tensor_specs)
+        print('before step 2 rename', left.children_specs, right.children_specs)
         left_contracted = left.in_idx[:len(right.out_idx)]  # contract these in-indices of LEFT with all out-indices of RIGHT
         print(f'matching left {left_contracted} to right {right.out_idx}')
         for left_idx, right_idx in zip(left_contracted, right.out_idx):
             right._rename_index(right_idx, left_idx)
         print('after step 2 rename')
-        print(right.tensor_specs)
+        print(right.children_specs)
 
         # TODO: here (add ..)
-        new_specs = self._transpose_specs(left.tensor_specs + right.tensor_specs, left.tensors + right.tensors,
+        new_specs = self._transpose_specs(left.children_specs + right.children_specs, left.tensors + right.tensors,
                                           left.tensor_labels + right.tensor_labels)
         result = TensorContraction(new_specs, label=f"{self.label}*{other.label}")
         print(f'contracting {self.label} and {other.label}')
-        print(','.join(self.tensor_specs) + ' * ' + ','.join(other.tensor_specs) + ' = ' + ','.join(result.tensor_specs))
+        print(','.join(self.children_specs) + ' * ' + ','.join(other.children_specs) + ' = ' + ','.join(result.children_specs))
         return result
 
     @staticmethod
-    def _transpose_specs(tensor_specs, tensors, tensor_labels):
-        return list((spec, tensor, label) for (spec, tensor, label) in zip(tensor_specs, tensors, tensor_labels))
+    def _transpose_specs(children_specs, tensors, tensor_labels):
+        return list((spec, tensor, label) for (spec, tensor, label) in zip(children_specs, tensors, tensor_labels))
 
     @staticmethod
-    def from_dense_vector(x: torch.Tensor, tag: str = None, idx: str = None):
+    def from_dense_vector(x: torch.Tensor, tag: str = None, idx: str = None) -> 'TensorContraction':
         """Creates StructuredTensor object corresponding to given dense vector"""
         assert isinstance(x, torch.Tensor)
         assert x.shape[0] > 0
@@ -517,7 +517,7 @@ class TensorContraction(Tensor):
         return TensorContraction.__legacy_init__([idx + '|'], [x], tag)
 
     @staticmethod
-    def from_dense_covector(x: torch.Tensor, tag: str = None, idx: str = None):
+    def from_dense_covector(x: torch.Tensor, tag: str = None, idx: str = None) -> 'TensorContraction':
         """Creates StructuredTensor object corresponding to given dense covector"""
         assert isinstance(x, torch.Tensor)
         assert x.shape[0] > 0
@@ -528,7 +528,7 @@ class TensorContraction(Tensor):
 
     # TODO(y): label/tag parameters fix
     @staticmethod
-    def from_dense_matrix(x: torch.Tensor, tag: str = None, idx: str = None):
+    def from_dense_matrix(x: torch.Tensor, tag: str = None, idx: str = None) -> 'TensorContraction':
         """Creates StructuredTensor object treating it as linear map (1 output, 1 input indices) from given matrix
         """
         assert isinstance(x, torch.Tensor)
@@ -540,11 +540,11 @@ class TensorContraction(Tensor):
         return TensorContraction.__legacy_init__([idx0 + '|' + idx1], [x], tag)
 
     @staticmethod
-    def from_dense_tensor(tensor_spec: str, x: torch.Tensor, label: str = None):
+    def from_dense_tensor(tensor_spec: str, x: torch.Tensor, label: str = None) -> 'TensorContraction':
         return TensorContraction([(tensor_spec, x, label)])
 
     @staticmethod
-    def from_diag_matrix(x: torch.Tensor, tag: str = None):
+    def from_diag_matrix(x: torch.Tensor, tag: str = None) -> 'TensorContraction':
         """Creates ContractibleTensor corresponding to diagonal matrix"""
         assert isinstance(x, torch.Tensor)
         assert len(x.shape) == 1
@@ -553,7 +553,7 @@ class TensorContraction(Tensor):
         return TensorContraction.__legacy_init__([idx0 + '|' + idx0], [x], tag)
 
     @property
-    def value(self):
+    def value(self) -> torch.Tensor:
         if not self._einsum_spec:
             # manually materialize for diagonal matrix case, since einsum doesn't support i->ii syntax
             assert len(self.in_idx) == 1, "Only support diagonal rank-2 diagonal tensors"

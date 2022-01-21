@@ -2,7 +2,6 @@ import sys
 
 import pytest
 
-import util as u
 from layers import *
 
 
@@ -802,7 +801,7 @@ def test_contractible_tensor2():
     b = ContractibleTensor.__legacy_init__(['a|b'], [x00])
     print(a)
     c = a * b
-    assert c.tensor_specs == ['a|b', 'b|c']
+    assert c.children_specs == ['a|b', 'b|c']
     u.check_equal(c, x00 @ x00)
 
     d2 = 2
@@ -815,17 +814,17 @@ def test_contractible_tensor2():
     a = ContractibleTensor.__legacy_init__(['a|bc', 'bc|de'], [rank3, rank4], tag='a')
     b = ContractibleTensor.__legacy_init__(['ab|c', 'c|d'], [rank3, rank2], tag='b')
     c = a * b
-    assert c.tensor_specs == ['a|bc', 'bc|de', 'de|f', 'f|g']
+    assert c.children_specs == ['a|bc', 'bc|de', 'de|f', 'f|g']
 
     a = ContractibleTensor.__legacy_init__(['a|bc', 'bc|defg'], [rank3, rank6], tag='a')
     b = ContractibleTensor.__legacy_init__(['ab|c', 'c|d'], [rank3, rank2], tag='b')
     c = a * b
-    assert c.tensor_specs == ['a|bc', 'bc|defg', 'de|h', 'h|i']
+    assert c.children_specs == ['a|bc', 'bc|defg', 'de|h', 'h|i']
 
     a = ContractibleTensor.__legacy_init__(['a|'], [rank1])
     b = ContractibleTensor.__legacy_init__(['|a'], [rank1])
     c = a * b
-    assert c.tensor_specs == ['a|', '|b']
+    assert c.children_specs == ['a|', '|b']
 
     u.check_equal(c, torch.outer(rank1, rank1))
 
@@ -884,9 +883,10 @@ def test_contractible_tensor2():
     # print('----', row * diag) # should be |j   but have j|:  |i * i|i
     # assert len(result.in_idx) == 1  # left |i,i|j,j|j -> |j
     result = row*mat
-    print(result.tensor_specs_str)
-    assert result.tensor_specs_str == '|a,a|b->|b'
-    assert (row*mat*diag).tensor_specs_str == '|a,a|b,b|b->|b'
+    print(result.children_specs_str)
+    assert result.children_specs_str == '|a,a|b->|b'
+    assert (row*mat*diag).children_specs_str == '|a,a|b,b|b->|b'
+    assert (row * mat * diag).children_specs_str == '|a,a|b,b|b->|b'
     assert (row * mat * diag * mat).flops == 410  # structured reverse mode
 
     print()
@@ -900,146 +900,16 @@ def test_contractible_tensor2():
     rank3 = torch.ones((d, d, d))
 
     # TODO: redo this test
-    # A = ContractibleTensor.__legacy_init__(['a|bc', 'bc|de'], [rank3, rank4], tag='a')
-    A = ContractibleTensor.from_dense_covector(rank2, idx='ij', tag='A')
-    B = ContractibleTensor.from_dense_tensor('i|ml', rank3, 'B')
-    C = ContractibleTensor.from_dense_tensor('l|o', rank2, 'C')
-    D = ContractibleTensor.from_dense_tensor('j|k', rank2, 'D')
-    E = ContractibleTensor.from_dense_tensor('km|n', rank3, 'E')
-    F = ContractibleTensor.from_dense_vector(rank2, idx='no', tag='F')
+    # A = TensorContraction.__legacy_init__(['a|bc', 'bc|de'], [rank3, rank4], tag='a')
+    A = TensorContraction.from_dense_covector(rank2, idx='ij', tag='A')
+    B = TensorContraction.from_dense_tensor('i|ml', rank3, 'B')
+    C = TensorContraction.from_dense_tensor('l|o', rank2, 'C')
+    D = TensorContraction.from_dense_tensor('j|k', rank2, 'D')
+    E = TensorContraction.from_dense_tensor('km|n', rank3, 'E')
+    F = TensorContraction.from_dense_vector(rank2, idx='no', tag='F')
     K = A * B * C * D * E * F
     print(K.flops)
     print(K._einsum_spec)
-
-
-def test_contractible_tensor():
-    d = 10
-    x00 = torch.ones((d, d))
-    y00 = torch.ones((d, d))
-    z00 = 2 * torch.ones((d, d))
-
-    a = ObsoleteContractibleTensor(['a|b', 'b|c'], [x00, y00])
-    u.check_equal(a, x00 @ y00)
-    assert a.flops == 2 * d ** 3
-
-    x = ObsoleteContractibleTensor(['i|j', 'j|k', 'k|l'], [x00, y00, z00])
-    u.check_equal(x, x00 @ y00 @ z00)
-
-    x = ObsoleteContractibleTensor(['a|b'], [x00])
-    y = ObsoleteContractibleTensor(['a|b'], [y00])
-    z = ObsoleteContractibleTensor(['a|b'], [z00])
-
-    # sanity basic FLOP counts from
-    # https://www.dropbox.com/s/47jxfhkb5g9nwvb/einograd-flops-basic.pdf?dl=0
-
-    a = ObsoleteContractibleTensor(['a|b'], [x00])
-    b = ObsoleteContractibleTensor(['a|b'], [x00])
-    print(a)
-    c = a * b
-    assert c.tensor_specs == ['a|b', 'b|c']
-    u.check_equal(c, x00 @ x00)
-
-    d2 = 2
-    rank1 = torch.ones((d2,))
-    rank2 = torch.ones((d2, d2))
-    rank3 = torch.ones((d2, d2, d2))
-    rank4 = torch.ones((d2, d2, d2, d2))
-    rank5 = torch.ones((d2, d2, d2, d2, d2))
-    rank6 = torch.ones((d2, d2, d2, d2, d2, d2))
-    a = ObsoleteContractibleTensor(['a|bc', 'bc|de'], [rank3, rank4], tag='a')
-    b = ObsoleteContractibleTensor(['ab|c', 'c|d'], [rank3, rank2], tag='b')
-    c = a * b
-    assert c.tensor_specs == ['a|bc', 'bc|de', 'de|f', 'f|g']
-
-    a = ObsoleteContractibleTensor(['a|bc', 'bc|defg'], [rank3, rank6], tag='a')
-    b = ObsoleteContractibleTensor(['ab|c', 'c|d'], [rank3, rank2], tag='b')
-    c = a * b
-    assert c.tensor_specs == ['a|bc', 'bc|defg', 'de|h', 'h|i']
-
-    a = ObsoleteContractibleTensor(['a|'], [rank1])
-    b = ObsoleteContractibleTensor(['|a'], [rank1])
-    c = a * b
-    assert c.tensor_specs == ['a|', '|b']
-
-    u.check_equal(c, torch.outer(rank1, rank1))
-
-    xyz = x * y * z
-    assert xyz.flops == 4 * d ** 3
-    u.check_equal(xyz, x00 @ y00 @ z00)
-
-    x00 = torch.ones((d,))
-    ma0 = 2 * torch.ones(d, d)
-    col = ObsoleteContractibleTensor.from_dense_vector(x00, 'col')
-    row = ObsoleteContractibleTensor.from_dense_covector(x00, 'row')
-    mat = ObsoleteContractibleTensor.from_dense_matrix(ma0, 'mat')
-
-    assert (row * mat * mat * mat).flops == 600  # reverse mode
-    assert (mat * mat * mat * col).flops == 600  # forward mode
-
-    #    assert (mat * mat * col * row * mat * mat).flops == 1000 # mixed mode
-    assert (col * row).flops == d * d  # outer product
-
-    u.check_equal(row * mat * mat * mat,
-                  x00 @ ma0 @ ma0 @ ma0)
-    u.check_equal(mat * mat * mat * col,
-                  ma0 @ ma0 @ ma0 @ x00)
-    colmat000 = torch.outer(x00, x00)
-    u.check_equal(mat * mat * col * row * mat * mat,
-                  ma0 @ ma0 @ colmat000 @ ma0 @ ma0)
-
-    diag = ObsoleteContractibleTensor.from_diag_matrix(3 * x00, 'diag')
-    dia0 = diag.value
-    print(dia0)
-
-    d2 = 2
-    rank1 = torch.ones((d2,))
-    rank2 = torch.ones((d2, d2))
-    rank3 = torch.ones((d2, d2, d2))
-    rank4 = torch.ones((d2, d2, d2, d2))
-    rank5 = torch.ones((d2, d2, d2, d2, d2))
-    rank6 = torch.ones((d2, d2, d2, d2, d2, d2))
-
-    # Unit Test B:
-    A = torch.ones((2, 3, 2, 2))
-    B = torch.ones((2,))
-    C = torch.ones((2, 2, 2, 4))
-
-    a = ObsoleteContractibleTensor(['a|bc', 'bc|de'], [rank3, rank4], tag='a')
-    b = ObsoleteContractibleTensor(['ab|c', 'c|d'], [rank3, rank2], tag='b')
-    c = a * b
-
-    return  # this changed to "test_diagonal_problem"
-    u.check_equal(row * diag, x00 @ dia0)
-    u.check_equal(row * mat * diag, x00 @ ma0 @ dia0)
-
-    assert (row * mat * diag * mat).flops == 410  # structured reverse mode
-
-    print()
-    u.check_equal(row * mat * diag * mat,
-                  x00 @ ma0 @ dia0 @ ma0)
-
-    # 3 x 2 grid example from "3 decompositions" section of
-    # https://notability.com/n/wNU5UXNGENsmRBzMFDSJQ
-    d = 2
-    rank2 = torch.ones((d, d))
-    rank3 = torch.ones((d, d, d))
-    A = OldStructuredTensor.from_dense_covector(rank2, idx='ij', tag='A')
-    B = OldStructuredTensor.from_dense_linearmap(rank3, idx='i|ml', tag='B')
-    # C = StructuredTensor.from_dense_linearmap(rank2, idx='l|o', tag='C')
-    # D = StructuredTensor.from_dense_linearmap(rank2, idx='j|k', tag='D')
-    # E = StructuredTensor.from_dense_linearmap(rank3, idx='km|n', tag='E')
-    # F = StructuredTensor.from_dense_vector(rank2, idx='no', tag='F')
-    print(A * B)
-    # K = A * B
-    # K = A * B * C * D * E * F
-    # disable some error checks
-    # gl.ALLOW_PARTIAL_CONTRACTIONS = True
-    # gl.ALLOW_UNSORTED_INDICES = True
-    # K = A * B * C * D
-    # TODO(y): non-determinism (probably because using set)
-    #    print(K.value)
-    #    print(K.flops)
-
 
 """
 def test_unit_test_A():
@@ -1217,7 +1087,6 @@ def run_all():
     test_least_squares()
     test_contraction()
     test_structured_tensor()
-    test_contractible_tensor()
     test_contractible_tensor2()
     test_diagonal_problem()
     # test_derivatives()
