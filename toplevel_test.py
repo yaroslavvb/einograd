@@ -2,6 +2,7 @@ import sys
 
 import pytest
 
+import util
 from layers import *
 
 
@@ -763,19 +764,12 @@ def test_structured_tensor():
     #    print(K.flops)
 
 def test_contractible_tensor2():
-    print('***************')
-    print('***************')
-    print('***************')
-    print('***************')
-    print('***************')
     d = 10
     x00 = torch.ones((d, d))
     y00 = torch.ones((d, d))
     z00 = 2 * torch.ones((d, d))
 
-    ContractibleTensor = TensorContraction
-
-    diag = ContractibleTensor.from_diag_matrix(3 * torch.ones((3,)), 'diag')
+    diag = TensorContraction.from_diag_matrix(3 * torch.ones((3,)), 'diag')
     assert diag.out_idx == diag.in_idx
     assert len(diag.out_idx) == 1
     dia0 = diag.value
@@ -785,20 +779,18 @@ def test_contractible_tensor2():
     u.check_equal(a.value, x00 @ y00)
     assert a.flops == 2 * d ** 3
 
-    # result1 = ContractibleTensor2([('ab|cd', A, 'A'), ('c|c', B, 'B'), ('cd|ef', C, 'C')], label='result1')
-
-    x = ContractibleTensor.__legacy_init__(['i|j', 'j|k', 'k|l'], [x00, y00, z00])
+    x = TensorContraction.__legacy_init__(['i|j', 'j|k', 'k|l'], [x00, y00, z00])
     u.check_equal(x, x00 @ y00 @ z00)
 
-    x = ContractibleTensor.__legacy_init__(['a|b'], [x00])
-    y = ContractibleTensor.__legacy_init__(['a|b'], [y00])
-    z = ContractibleTensor.__legacy_init__(['a|b'], [z00])
+    x = TensorContraction.__legacy_init__(['a|b'], [x00])
+    y = TensorContraction.__legacy_init__(['a|b'], [y00])
+    z = TensorContraction.__legacy_init__(['a|b'], [z00])
 
     # sanity basic FLOP counts from
     # https://www.dropbox.com/s/47jxfhkb5g9nwvb/einograd-flops-basic.pdf?dl=0
 
-    a = ContractibleTensor.__legacy_init__(['a|b'], [x00])
-    b = ContractibleTensor.__legacy_init__(['a|b'], [x00])
+    a = TensorContraction.__legacy_init__(['a|b'], [x00])
+    b = TensorContraction.__legacy_init__(['a|b'], [x00])
     print(a)
     c = a * b
     assert c.children_specs == ['a|b', 'b|c']
@@ -809,20 +801,19 @@ def test_contractible_tensor2():
     rank2 = torch.ones((d2, d2))
     rank3 = torch.ones((d2, d2, d2))
     rank4 = torch.ones((d2, d2, d2, d2))
-    rank5 = torch.ones((d2, d2, d2, d2, d2))
     rank6 = torch.ones((d2, d2, d2, d2, d2, d2))
-    a = ContractibleTensor.__legacy_init__(['a|bc', 'bc|de'], [rank3, rank4], tag='a')
-    b = ContractibleTensor.__legacy_init__(['ab|c', 'c|d'], [rank3, rank2], tag='b')
+    a = TensorContraction.__legacy_init__(['a|bc', 'bc|de'], [rank3, rank4], label='a')
+    b = TensorContraction.__legacy_init__(['ab|c', 'c|d'], [rank3, rank2], label='b')
     c = a * b
     assert c.children_specs == ['a|bc', 'bc|de', 'de|f', 'f|g']
 
-    a = ContractibleTensor.__legacy_init__(['a|bc', 'bc|defg'], [rank3, rank6], tag='a')
-    b = ContractibleTensor.__legacy_init__(['ab|c', 'c|d'], [rank3, rank2], tag='b')
+    a = TensorContraction.__legacy_init__(['a|bc', 'bc|defg'], [rank3, rank6], label='a')
+    b = TensorContraction.__legacy_init__(['ab|c', 'c|d'], [rank3, rank2], label='b')
     c = a * b
     assert c.children_specs == ['a|bc', 'bc|defg', 'de|h', 'h|i']
 
-    a = ContractibleTensor.__legacy_init__(['a|'], [rank1])
-    b = ContractibleTensor.__legacy_init__(['|a'], [rank1])
+    a = TensorContraction.__legacy_init__(['a|'], [rank1])
+    b = TensorContraction.__legacy_init__(['|a'], [rank1])
     c = a * b
     assert c.children_specs == ['a|', '|b']
 
@@ -852,41 +843,37 @@ def test_contractible_tensor2():
     u.check_equal(mat * mat * col * row * mat * mat,
                   ma0 @ ma0 @ colmat000 @ ma0 @ ma0)
 
-    diag = ContractibleTensor.from_diag_matrix(3 * x00, 'diag')
+    diag = TensorContraction.from_diag_matrix(3 * x00, 'diag')
     assert diag.out_idx == diag.in_idx
     assert len(diag.out_idx) == 1
     dia0 = diag.value
     print(dia0)
 
     d2 = 2
-    rank1 = torch.ones((d2,))
     rank2 = torch.ones((d2, d2))
     rank3 = torch.ones((d2, d2, d2))
     rank4 = torch.ones((d2, d2, d2, d2))
-    rank5 = torch.ones((d2, d2, d2, d2, d2))
-    rank6 = torch.ones((d2, d2, d2, d2, d2, d2))
 
-    # Unit Test B:
+    # UnitTestB:
     A = torch.ones((2, 3, 2, 2))
     B = torch.ones((2,))
     C = torch.ones((2, 2, 2, 4))
 
-    a = ContractibleTensor.__legacy_init__(['a|bc', 'bc|de'], [rank3, rank4], tag='a')
-    b = ContractibleTensor.__legacy_init__(['ab|c', 'c|d'], [rank3, rank2], tag='b')
+    D = TensorContraction([('ab|cd', A, 'A'), ('c|c', B, 'B'), ('cd|ef', C, 'C')])
+    assert D.ricci_str == 'ab|cd,c|c,cd|ef->ab|ef'
+
+    a = TensorContraction.__legacy_init__(['a|bc', 'bc|de'], [rank3, rank4], label='a')
+    b = TensorContraction.__legacy_init__(['ab|c', 'c|d'], [rank3, rank2], label='b')
     c = a * b
 
     u.check_equal(row * diag, x00 @ dia0)
     u.check_equal(row * mat * diag, x00 @ ma0 @ dia0)
 
-    # result = row * mat * diag
-    # print('----', row * mat)  # should be |j
-    # print('----', row * diag) # should be |j   but have j|:  |i * i|i
-    # assert len(result.in_idx) == 1  # left |i,i|j,j|j -> |j
     result = row*mat
-    print(result.children_specs_str)
-    assert result.children_specs_str == '|a,a|b->|b'
-    assert (row*mat*diag).children_specs_str == '|a,a|b,b|b->|b'
-    assert (row * mat * diag).children_specs_str == '|a,a|b,b|b->|b'
+    print(result.ricci_str)
+    assert result.ricci_str == '|a,a|b->|b'
+    assert (row*mat*diag).ricci_str == '|a,a|b,b|b->|b'
+    assert (row * mat * diag).ricci_str == '|a,a|b,b|b->|b'
     assert (row * mat * diag * mat).flops == 410  # structured reverse mode
 
     print()
@@ -901,12 +888,12 @@ def test_contractible_tensor2():
 
     # TODO: redo this test
     # A = TensorContraction.__legacy_init__(['a|bc', 'bc|de'], [rank3, rank4], tag='a')
-    A = TensorContraction.from_dense_covector(rank2, idx='ij', tag='A')
+    A = TensorContraction.from_dense_covector(rank2, idx='ij', label='A')
     B = TensorContraction.from_dense_tensor('i|ml', rank3, 'B')
     C = TensorContraction.from_dense_tensor('l|o', rank2, 'C')
     D = TensorContraction.from_dense_tensor('j|k', rank2, 'D')
     E = TensorContraction.from_dense_tensor('km|n', rank3, 'E')
-    F = TensorContraction.from_dense_vector(rank2, idx='no', tag='F')
+    F = TensorContraction.from_dense_vector(rank2, idx='no', label='F')
     K = A * B * C * D * E * F
     print(K.flops)
     print(K._einsum_spec)
@@ -1063,19 +1050,42 @@ def test_present():
     print(hvp)
 
 
+# Tests from "Diagonal logic"
 def test_diagonal_problem():
     d = 2
-    x00 = torch.ones((d,))
-    ma0 = 2 * torch.ones(d, d)
-    col = TensorContraction.from_dense_vector(x00, 'col')
-    row = TensorContraction.from_dense_covector(x00, 'row')
-    mat = TensorContraction.from_dense_matrix(ma0, 'mat')
+    row0 = torch.ones((d,))
+    col0 = 2*torch.ones((d,))
+    diag0 = 3 * torch.ones((d,))
+    ma0 = 4 * torch.ones(d, d)
+    row = TensorContraction.from_dense_covector(row0, label='row')
+    col = TensorContraction.from_dense_vector(col0, label='col')
+    diag = TensorContraction.from_diag_matrix(diag0, label='diag')
+    mat = TensorContraction.from_dense_matrix(ma0, label='mat')
 
-    colmat000 = torch.outer(x00, x00)
-    diag = TensorContraction.from_diag_matrix(3 * x00, 'diag')
-    dia0 = diag.value
-    print(dia0)
-    u.check_equal(row * diag, x00 @ dia0)
+    assert (row*diag).ricci_str == '|a,a|a->|a'
+    util.check_equal(row*diag, row0*diag0)
+
+    assert (diag * col).ricci_str == 'a|a,a|->a|'
+    u.check_equal(diag * col, diag0 * col0)
+
+    assert (row * col).ricci_str == '|a,a|->|'
+    u.check_equal(row * col, row0 @ col0)
+
+    # weighted dot product
+    assert (row * diag * col).ricci_str == '|a,a|a,a|->|'
+    u.check_equal(row * diag * col, (row0 * diag0 * col0).sum())
+
+    # Hadamard product of two diagonal matrices support combining, but not direct materialization for now, need to figure out how to deal
+    # with multiple diagonal matrices, only support 1
+    assert (diag * diag).ricci_str == 'a|a,a|a->a|a'
+    with pytest.raises(Exception):
+        print((diag*diag).value)
+
+    # this case could be enabled in the future, but to reduce scope currently
+    # we specialize all contractions to go in left-to-right-order
+    with pytest.raises(Exception):
+        assert (col * diag).ricci_str == 'a|,a|a->a|'
+
 
 
 def run_all():
