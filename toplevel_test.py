@@ -1,6 +1,7 @@
 import sys
 
 import pytest
+import torch
 
 import util
 from layers import *
@@ -1053,10 +1054,12 @@ def test_present():
 # Tests from "Diagonal logic"
 def test_diagonal_problem():
     d = 2
-    row0 = torch.ones((d,))
-    col0 = 2*torch.ones((d,))
-    diag0 = 3 * torch.ones((d,))
-    ma0 = 4 * torch.ones(d, d)
+    m = 20
+    torch.manual_seed(1)
+    row0 = torch.randint(1, m, size=(d,)).float()
+    col0 = torch.randint(1, m, size=(d,)).float()
+    diag0 = torch.randint(1, m, size=(d,)).float()
+    ma0 = torch.randint(1, m, size=(d, d)).float()
     row = TensorContraction.from_dense_covector(row0, label='row')
     col = TensorContraction.from_dense_vector(col0, label='col')
     diag = TensorContraction.from_diag_matrix(diag0, label='diag')
@@ -1080,12 +1083,15 @@ def test_diagonal_problem():
     assert (diag * diag).ricci_str == 'a|a,a|a->a|a'
     with pytest.raises(Exception):
         print((diag*diag).value)
+        u.check_equal(diag * diag, torch.diag(diag0) @ torch.diag(diag0))
 
     # this case could be enabled in the future, but to reduce scope currently
     # we specialize all contractions to go in left-to-right-order
     with pytest.raises(Exception):
         assert (col * diag).ricci_str == 'a|,a|a->a|'
 
+    u.check_equal(mat * diag, ma0 @ torch.diag(diag0))
+    u.check_equal(diag * mat, torch.diag(diag0) @ ma0)
 
 
 def run_all():
