@@ -940,7 +940,7 @@ def test_2x3grid():
     AB = A * B
     print(AB.ricci_str)
 
-@pytest.mark.skip(reason="work in progress")
+# @pytest.mark.skip(reason="work in progress")
 def test_partial_contraction_UnitTestC():
     d2 = 2
     rank1 = torch.ones((d2,))
@@ -1164,6 +1164,7 @@ def test_diagonal_problem():
 def run_all():
     test_contractible_tensor2()
     test_partial_contraction_UnitTestC()
+    sys.exit()
 #    sys.exit()
     # test_2x3grid()
     test_contract()
