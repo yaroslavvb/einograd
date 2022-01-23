@@ -248,11 +248,12 @@ class TensorContraction(Tensor):
                 contracted_idx.append(idx)
             elif is_out and is_diag:  # contracted with diagonal on left
                 out_idx.append(idx)
+                in_idx_order.append((idx, self.idx_to_diag_tensors[idx]))
             elif is_in and is_diag:   # contracted with diagonal on right
                 in_idx_order.append((idx, self.idx_to_diag_tensors[idx]))
                 in_idx.append(idx)
             elif is_diag:  # passthrough without multiplication
-                in_idx_order.append((idx, self.idx_to_in_tensors[idx]))
+                in_idx_order.append((idx, self.idx_to_diag_tensors[idx]))
                 out_idx.append(idx)
                 in_idx.append(idx)
             elif is_out:   # passhtrough to left without contraction
@@ -264,20 +265,23 @@ class TensorContraction(Tensor):
                 assert False, "index is neither out, in or diagonal, how did this happen?"
 
         # Arrange output indices to order right-most tensors output indices first (see UnitTestC)
-#        print('========')
-#        print(in_idx_order)
-#        # for each in index determine the largest index tensor for which it's an in-index
-#        in_idx_to_rightmost_tensor = {}
-#        for (idx, tensor_id_tuple) in in_idx_order:
-#            for tensor_id in tensor_id_tuple:
-#                in_idx_to_rightmost_tensor[idx] = max(in_idx_to_rightmost_tensor.get(idx, -1), tensor_id)
+        new_in_idx = []
+        print('========')
+        print(in_idx_order)
+        # for each in index determine the largest index tensor for which it's an in-index
+        in_idx_to_rightmost_tensor = {}
+        for (idx, tensor_id_tuple) in in_idx_order:
+            for tensor_id in tensor_id_tuple:
+                in_idx_to_rightmost_tensor[idx] = max(in_idx_to_rightmost_tensor.get(idx, -1), tensor_id)
 
-#        for rightmost_tensor_id in reversed(sorted(in_idx_to_rightmost_tensor.values())):
-#            for (idx, tensor_id_tuple) in in_idx_order:
-#                if max(tensor_id_tuple) != rightmost_tensor_id:
-#                    continue
-#                in_idx.append(idx)
+        for rightmost_tensor_id in reversed(sorted(in_idx_to_rightmost_tensor.values())):
+            for (idx, tensor_id_tuple) in in_idx_order:
+                if max(tensor_id_tuple) != rightmost_tensor_id:
+                    continue
+                if idx in in_idx:
+                    new_in_idx.append(idx)
 
+        new_in_idx = in_idx
         self.out_idx = out_idx
         self.contracted_idx = contracted_idx
         self.in_idx = in_idx
