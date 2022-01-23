@@ -1162,6 +1162,7 @@ def test_diagonal_problem():
 
 
 def run_all():
+    test_contractible_tensor2()
     test_partial_contraction_UnitTestC()
 #    sys.exit()
     # test_2x3grid()
