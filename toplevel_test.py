@@ -887,17 +887,83 @@ def test_contractible_tensor2():
     rank2 = torch.ones((d, d))
     rank3 = torch.ones((d, d, d))
 
-    # TODO: redo this test
-    # A = TensorContraction.__legacy_init__(['a|bc', 'bc|de'], [rank3, rank4], tag='a')
+@pytest.mark.skip(reason="this example doesn't work because currently it contracts sequentially left to right")
+def test_2x3grid():
+    """If we want this kind of contraction to work, need to redo contraction logic to look at particular names of indices and match
+    them up. Current logic just matches positions and discards original index names: all k output indices of the right are renamed to match first k input indices
+    of the left."""
+
+    d2 = 2
+    rank1 = torch.ones((d2,))
+    rank2 = torch.ones((d2, d2))
+    rank3 = torch.ones((d2, d2, d2))
+    rank4 = torch.ones((d2, d2, d2, d2))
+    rank6 = torch.ones((d2, d2, d2, d2, d2, d2))
+
     A = TensorContraction.from_dense_covector(rank2, idx='ij', label='A')
-    B = TensorContraction.from_dense_tensor('i|ml', rank3, 'B')
+    B = TensorContraction.from_dense_tensor('i|lm', rank3, 'B')
     C = TensorContraction.from_dense_tensor('l|o', rank2, 'C')
     D = TensorContraction.from_dense_tensor('j|k', rank2, 'D')
     E = TensorContraction.from_dense_tensor('km|n', rank3, 'E')
     F = TensorContraction.from_dense_vector(rank2, idx='no', label='F')
+
+    print('====='*20)
+    partial1 = A*B
+    print('-----', partial1.ricci_str)
+    assert partial1.ricci_out == '|jlm'
+    partial2 = partial1 * C
+    print('-----', partial2.ricci_str)
+    assert partial1.ricci_out == '|jlm'
+    partial3 = partial2 * D
+    print('-----', partial3.ricci_str)
+
+    # at this point error happens, D^j is contracted with B_l instead of A_j
+    assert partial1.ricci_out == '|lmo'
+    partial4 = partial3 * E
+    assert partial4.ricci_out == '|mok'
+    print('-----', partial2.ricci_str)
+    partial5 = partial4 * F
+    print('-----', partial2.ricci_str)
+
     K = A * B * C * D * E * F
     print(K.flops)
     print(K._einsum_spec)
+
+    # Hessian-like contractions
+
+    # this should raise an error because rank doesn't match
+    with pytest.raises(Exception):
+        A = TensorContraction([('a|bc', rank2, 'A')])
+
+    assert A.ricci_str == 'a|bc'
+    B = TensorContraction([('bc|defg', rank6, 'B')])
+    AB = A * B
+    print(AB.ricci_str)
+
+def test_partial_contraction_UnitTestC():
+    d2 = 2
+    rank1 = torch.ones((d2,))
+    rank2 = torch.ones((d2, d2))
+    rank3 = torch.ones((d2, d2, d2))
+    rank4 = torch.ones((d2, d2, d2, d2))
+    rank6 = torch.ones((d2, d2, d2, d2, d2, d2))
+
+    # this should raise an error because rank doesn't match
+    with pytest.raises(Exception):
+        A = TensorContraction([('a|bc', rank2, 'A')])
+
+    A = TensorContraction([('a|bc', rank3, 'A')])
+    assert A.ricci_str == 'a|bc->a|bc'
+    B = TensorContraction([('bc|defg', rank6, 'B')])
+    assert B.ricci_str == 'bc|defg->bc|defg'
+    AB = A * B
+    assert AB.ricci_str == 'a|bc,bc|defg->a|defg'
+    result2 = AB * TensorContraction([('de|h', rank3, 'C'), ('h|i', rank2, 'D')])
+    result1 = TensorContraction([('a|bc', rank3, 'A'), ('bc|defg', rank6, 'B'), ('de|h', rank3, 'C'), ('h|i', rank2, 'D')])
+    print(result1.ricci_str)
+    assert result2.ricci_out == 'a|ifg'
+    print(result2.ricci_out)
+
 
 """
 def test_unit_test_A():
@@ -1095,6 +1161,9 @@ def test_diagonal_problem():
 
 
 def run_all():
+#    test_partial_contraction_UnitTestC()
+#    sys.exit()
+    # test_2x3grid()
     test_contract()
     test_dense()
     test_unit_test_a()

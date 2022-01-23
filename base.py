@@ -192,7 +192,7 @@ class TensorContraction(Tensor):
         idx_to_out_tensors: Dict[chr, List[int]] = {}
         idx_to_in_tensors: Dict[chr, List[int]] = {}
         idx_to_diag_tensors: Dict[chr, List[int]] = {}
-
+        # maybe use list instead of set to maintain order?
         all_indices = set(''.join(children_specs).replace('|', ''))
         assert ' ' not in all_indices
         for idx in all_indices:
@@ -213,7 +213,15 @@ class TensorContraction(Tensor):
                 if idx in out_idx_term and idx in in_idx_term:
                     idx_to_diag_tensors[idx].append(tensor_id)
 
+            # some logic assumes indices are alphabetically sorted and the original order is lost (because of using set() rather than
+            # list() to manipulate indices). Ensure indices are alphabetically sorted, this means order is not lost
+            assert more_itertools.is_sorted(out_idx_term, strict=True)
+            assert more_itertools.is_sorted(in_idx_term, strict=True)
+
             # get index shape from provided tensor
+            assert len(tensor_data.shape) == len(set(out_idx_term + in_idx_term)), f"Not enough dimensions for indices, " \
+                                                                              f"have {len(out_idx_term + in_idx_term)} indices, {len(set(out_idx_term + in_idx_term))} unique but " \
+                                                                              f"{len(tensor_data.shape)} dimensions"
             for (idx, dim) in zip(out_idx_term + in_idx_term, tensor_data.shape):
                 if idx in idx_to_dim:
                     assert idx_to_dim[idx] == dim, f"trying to set idx {idx} in {tensor_spec} to {dim}, " \
@@ -256,11 +264,6 @@ class TensorContraction(Tensor):
         self.in_idx = in_idx
         self.diag_idx = [x for x in out_idx if x in in_idx]  # intersect while preserving order
 
-        print(self)
-        print(self.out_idx)
-        print(self.in_idx)
-        print(self.diag_idx)
-
         self.ricci_str = f"{','.join(children_specs)}->{''.join(list(self.out_idx))}|{''.join(list(self.in_idx))}"
 
         if not self.diag_idx:    # einsum can't materialize diagonal tensors, don't generate string here
@@ -270,7 +273,6 @@ class TensorContraction(Tensor):
         else:
             print("diagonal tensor, no einsum for " + ','.join(self.children_specs))
             self._einsum_spec = None   # unsupported by torch.einsum
-        print('***', self._einsum_spec)
 
     @staticmethod
     def _process_for_einsum(spec):
