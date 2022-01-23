@@ -881,14 +881,31 @@ def test_contractible_tensor2():
     u.check_equal(row * mat * diag * mat,
                   x00 @ ma0 @ dia0 @ ma0)
 
-    # 3 x 2 grid example from "3 decompositions" section of
+    # 2x3 grid example from "3 decompositions" section of
     # https://notability.com/n/wNU5UXNGENsmRBzMFDSJQ
     d = 2
     rank2 = torch.ones((d, d))
     rank3 = torch.ones((d, d, d))
 
-@pytest.mark.skip(reason="this example doesn't work because currently it contracts sequentially left to right")
-def test_2x3grid():
+    d2 = 2
+    rank1 = torch.ones((d2,))
+    rank2 = torch.ones((d2, d2))
+    rank3 = torch.ones((d2, d2, d2))
+    rank4 = torch.ones((d2, d2, d2, d2))
+    rank6 = torch.ones((d2, d2, d2, d2, d2, d2))
+
+    A = ('|ij', rank2, 'A')
+    B = ('i|lm', rank3, 'B')
+    C = ('l|o', rank2, 'C')
+    D = ('j|k', rank2, 'D')
+    E = ('km|n', rank3, 'E')
+    F = ('no|', rank2, 'F')
+    K = TensorContraction([A, B, C, D, E, F])
+    assert K.flops == 104, "Change in flop requirement detected (don't actually know if 104 is correct)"
+
+
+@pytest.mark.skip(reason="this example doesn't work because our implementation currently contracts sequentially left to right only with automatic index renaming")
+def test_2x3grid_mul():
     """If we want this kind of contraction to work, need to redo contraction logic to look at particular names of indices and match
     them up. Current logic just matches positions and discards original index names: all k output indices of the right are renamed to match first k input indices
     of the left."""
@@ -940,7 +957,6 @@ def test_2x3grid():
     AB = A * B
     print(AB.ricci_str)
 
-# @pytest.mark.skip(reason="work in progress")
 def test_partial_contraction_UnitTestC():
     d2 = 2
     rank1 = torch.ones((d2,))
@@ -963,7 +979,12 @@ def test_partial_contraction_UnitTestC():
     result1 = TensorContraction([('a|bc', rank3, 'A'), ('bc|defg', rank6, 'B'), ('de|h', rank3, 'C'), ('h|i', rank2, 'D')])
     print(result1.ricci_str)
     assert result2.ricci_out == 'a|ifg'
-    print(result2.ricci_out)
+
+    # UnitTestD
+    vec = TensorContraction.from_dense_vector(rank1)
+    assert (result2 * vec).ricci_out == 'a|fg'
+    assert (result2 * vec * vec).ricci_out == 'a|g'
+    assert (result2 * vec * vec * vec).ricci_out == 'a|'
 
 
 """
@@ -1164,9 +1185,6 @@ def test_diagonal_problem():
 def run_all():
     test_contractible_tensor2()
     test_partial_contraction_UnitTestC()
-    sys.exit()
-#    sys.exit()
-    # test_2x3grid()
     test_contract()
     test_dense()
     test_unit_test_a()

@@ -111,6 +111,7 @@ class TensorAddition(CompositeTensor):
             result = result + c.value
         return result
 
+# TODO(y): move order to (tensor, idx, ...)
 class TensorContraction(Tensor):
     label: str  # tag helpful for debugging
 
@@ -562,7 +563,7 @@ class TensorContraction(Tensor):
             idx = ''.join(chr(i) for i in range(ord(idx0), ord(idx0) + len(x.shape)))
         return TensorContraction.__legacy_init__(['|' + idx], [x], label)
 
-    # TODO(y): label/tag parameters fix
+    # TODO(y): label/tag parameters fix, half of the methods start with tensor, another half with index
     @staticmethod
     def from_dense_matrix(x: torch.Tensor, label: str = None) -> 'TensorContraction':
         """Creates StructuredTensor object treating it as linear map (1 output, 1 input indices) from given matrix
