@@ -411,17 +411,27 @@ class TensorContraction(Tensor):
     def __repr__(self):
         return self.__str__()
 
-    def _rename_index(self, old_name: str, new_name: str, allow_clashes=False):
+    def _rename_index(self, old_name: str, new_name: str, allow_diagonal_rewiring=False):
+        """
+
+        Args:
+            old_name:
+            new_name:
+            allow_diagonal_rewiring: adds special logic that merges multiple indices together
+
+        Returns:
+
+        """
         if old_name == new_name:
             return
 
         print(f'renaming {old_name} to {new_name}')
 
         def rename_dictionary_entry(d: Dict[chr, Any], old_name: chr, new_name: chr):
+            assert isinstance(d, dict)
             if old_name not in d:
                 return
-            assert isinstance(d, dict)
-            if not allow_clashes:
+            if not allow_diagonal_rewiring:
                 assert new_name not in d
             assert isinstance(old_name, str) and len(old_name) == 1
             assert isinstance(new_name, str) and len(new_name) == 1
@@ -429,11 +439,11 @@ class TensorContraction(Tensor):
             del d[old_name]
 
         def rename_list_entry(ll, old_name, new_name):  # {len(l.count(old_name)}!=1
+            assert isinstance(ll, list)
             if old_name not in ll:
                 return
-            if not allow_clashes:
+            if not allow_diagonal_rewiring:
                 assert new_name not in ll
-            assert isinstance(ll, list)
             assert isinstance(old_name, str)
             assert len(old_name) == 1
             assert isinstance(new_name, str)
@@ -443,8 +453,9 @@ class TensorContraction(Tensor):
             pos = ll.index(old_name)
             ll[pos] = new_name
 
-        if not allow_clashes:
-            assert new_name not in self.all_indices, f"Renaming '{old_name}' to '{new_name}' but '{new_name}' already used in " \
+        index_overlap = new_name in self.all_indices
+        if not allow_diagonal_rewiring:
+            assert not index_overlap, f"Renaming '{old_name}' to '{new_name}' but '{new_name}' already used in " \
                                                      f"tensor {str(self)}"
 
         rename_list_entry(self.out_idx, old_name, new_name)
@@ -454,8 +465,14 @@ class TensorContraction(Tensor):
         for i, index_spec in enumerate(self.children_specs):
             self.children_specs[i] = index_spec.replace(old_name, new_name)  # ab|c -> de|c
         #  _einsum_spec: str  # 'ij,jk->ik'
-        if self._einsum_spec:
+
+        if self._einsum_spec and allow_diagonal_rewiring and index_overlap:
+            left_einsum, right_einsum = self._einsum_spec.split('->')
+            assert new_name+new_name in right_einsum
+            self._einsum_spec = left_einsum + '->' + right_einsum.replace(new_name+new_name, new_name) # ii->ii  becomes ii->i
+        elif self._einsum_spec:
             self._einsum_spec = self._einsum_spec.replace(old_name, new_name)
+
         rename_dictionary_entry(self.idx_to_out_tensors, old_name, new_name)
         rename_dictionary_entry(self.idx_to_in_tensors, old_name, new_name)
         rename_dictionary_entry(self.idx_to_dim, old_name, new_name)
@@ -510,7 +527,7 @@ class TensorContraction(Tensor):
         tensor = TensorContraction(self._original_specs)
 
         for bottom, top in zip(bottom_idx, top_idx):
-            tensor._rename_index(top, bottom, allow_clashes=True)
+            tensor._rename_index(top, bottom, allow_diagonal_rewiring=True)
         return tensor
 
     def trace(self):

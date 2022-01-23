@@ -1184,6 +1184,8 @@ def test_diagonal_problem():
 @pytest.mark.skip(reason="wip")
 def test_diagonal_and_trace():
     A = TensorContraction([('|ab', u.from_numpy([[1, 2], [3, 4]]), 'A')])
+    r = A.diag
+    assert r.ricci_out == '|a'
     u.check_equal(A.diag, [1, 4])
     u.check_equal(A.trace, 5)
 
@@ -1194,6 +1196,8 @@ def test_diagonal_and_trace():
 
 
 def run_all():
+    # test_diagonal_and_trace()
+
     test_contractible_tensor2()
     test_partial_contraction_UnitTestC()
     test_contract()
@@ -1206,7 +1210,6 @@ def run_all():
     test_structured_tensor()
     test_contractible_tensor2()
     test_diagonal_problem()
-    test_diagonal_and_trace()
     # test_derivatives()
 
 
