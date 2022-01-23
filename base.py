@@ -235,7 +235,7 @@ class TensorContraction(Tensor):
         self.idx_to_diag_tensors = u.freeze_multimap(idx_to_diag_tensors)
 
         out_idx = []
-        in_idx = []
+        in_idx_order = []   # list of in indices along with tensor. Use this to sort indices of later tensor ahead of former
         contracted_idx = []
         # # should be |j   but have j|:  |i * i|i. i is "is_in" and "is_diag"
 
@@ -248,17 +248,18 @@ class TensorContraction(Tensor):
             elif is_out and is_diag:  # contracted with diagonal on left
                 out_idx.append(idx)
             elif is_in and is_diag:   # contracted with diagonal on right
-                in_idx.append(idx)
+                in_idx_order.append((idx, self.idx_to_diag_tensors[idx]))
             elif is_diag:  # passthrough without multiplication
-                in_idx.append(idx)
+                in_idx_order.append((idx, self.idx_to_in_tensors[idx]))
                 out_idx.append(idx)
             elif is_out:   # passhtrough to left without contraction
                 out_idx.append(idx)
             elif is_in:    # passthrough to right without contraction
-                in_idx.append(idx)
+                in_idx_order.append((idx, self.idx_to_in_tensors[idx]))
             else:
                 assert False, "index is neither out, in or diagonal, how did this happen?"
 
+        in_idx = [idx for (idx, _) in in_idx_order]
         self.out_idx = out_idx
         self.contracted_idx = contracted_idx
         self.in_idx = in_idx
