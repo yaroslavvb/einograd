@@ -1193,7 +1193,6 @@ def test_diagonal_and_trace():
         print(A.trace)
 
 
-
 def run_all():
     test_contractible_tensor2()
     test_partial_contraction_UnitTestC()

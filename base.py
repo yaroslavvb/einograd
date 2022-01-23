@@ -12,7 +12,6 @@ from opt_einsum import helpers as oe_helpers
 import util as u
 
 
-
 # GLOBALS = AttrDict({'DEBUG': True, 'device': 'cpu', 'PURE_TENSOR_NETWORKS': False,
 #               'tensor_count': 0, 'ALLOW_PARTIAL_CONTRACTIONS': False,
 #               'ALLOW_UNSORTED_INDICES': False,
@@ -111,6 +110,7 @@ class TensorAddition(CompositeTensor):
             result = result + c.value
         return result
 
+
 # TODO(y): move order to (tensor, idx, ...)
 class TensorContraction(Tensor):
     label: str  # tag helpful for debugging
@@ -127,13 +127,13 @@ class TensorContraction(Tensor):
     in_idx: List[chr]  # [e, f]
 
     idx_to_out_tensors: Dict[chr, Tuple[int]]  # tensors for which this index is contravariant
-    idx_to_in_tensors: Dict[chr, Tuple[int]]   # tensors for which this index is covariant
-    idx_to_diag_tensors: Dict[chr, Tuple[int]] # tensors for which this index is both (co/contra)variant
+    idx_to_in_tensors: Dict[chr, Tuple[int]]  # tensors for which this index is covariant
+    idx_to_diag_tensors: Dict[chr, Tuple[int]]  # tensors for which this index is both (co/contra)variant
 
     idx_to_dim: Dict[chr, int]  # {a:2, b:3, c:2, d:2, e:2, f:4}
 
     _einsum_str: str  # 'abcd,c,cdef->abef'
-    ricci_str: str    # ab|cd,cd|ef->ab|ef, Like einsum string, but uses Ricci calculus distinction of up/down indices, separating them by |
+    ricci_str: str  # ab|cd,cd|ef->ab|ef, Like einsum string, but uses Ricci calculus distinction of up/down indices, separating them by |
 
     @property
     def ricci_in(self):
@@ -147,7 +147,7 @@ class TensorContraction(Tensor):
     def __legacy_init__(index_spec_list, tensors, label=None) -> 'TensorContraction':
         return TensorContraction(list((i, t) for (i, t) in zip(index_spec_list, tensors)), label)
 
-    def __init__(self, specs: Union[List[Tuple],Tuple[Tuple]], label=None):
+    def __init__(self, specs: Union[List[Tuple], Tuple[Tuple]], label=None):
         """
 
         Args:
@@ -176,7 +176,7 @@ class TensorContraction(Tensor):
 
             assert isinstance(tensor_spec, str)
             assert isinstance(tensor_data, torch.Tensor), f"Provided not an instance of torch.Tensor for {tensor_spec}, " \
-                                                     f"{tensor_label}, instead see type {type(tensor_data)}"
+                                                          f"{tensor_label}, instead see type {type(tensor_data)}"
 
             children_specs.append(tensor_spec)
             tensors.append(tensor_data)
@@ -210,7 +210,7 @@ class TensorContraction(Tensor):
             for idx in in_idx_term:
                 if idx not in out_idx_term:
                     idx_to_in_tensors[idx].append(tensor_id)
-            for idx in set(out_idx_term+in_idx_term):
+            for idx in set(out_idx_term + in_idx_term):
                 if idx in out_idx_term and idx in in_idx_term:
                     idx_to_diag_tensors[idx].append(tensor_id)
 
@@ -221,8 +221,8 @@ class TensorContraction(Tensor):
 
             # get index shape from provided tensor
             assert len(tensor_data.shape) == len(set(out_idx_term + in_idx_term)), f"Not enough dimensions for indices, " \
-                                                                              f"have {len(out_idx_term + in_idx_term)} indices, {len(set(out_idx_term + in_idx_term))} unique but " \
-                                                                              f"{len(tensor_data.shape)} dimensions"
+                                                                                   f"have {len(out_idx_term + in_idx_term)} indices, {len(set(out_idx_term + in_idx_term))} unique but " \
+                                                                                   f"{len(tensor_data.shape)} dimensions"
             for (idx, dim) in zip(out_idx_term + in_idx_term, tensor_data.shape):
                 if idx in idx_to_dim:
                     assert idx_to_dim[idx] == dim, f"trying to set idx {idx} in {tensor_spec} to {dim}, " \
@@ -230,13 +230,13 @@ class TensorContraction(Tensor):
                 assert dim > 0, f"Index {idx} in {tensor_spec} must have positive dimension, instead see {dim}"
                 idx_to_dim[idx] = dim
 
-        self.idx_to_dim = idx_to_dim   # TODO(y): use frozendict
+        self.idx_to_dim = idx_to_dim  # TODO(y): use frozendict
         self.idx_to_out_tensors = u.freeze_multimap(idx_to_out_tensors)
         self.idx_to_in_tensors = u.freeze_multimap(idx_to_in_tensors)
         self.idx_to_diag_tensors = u.freeze_multimap(idx_to_diag_tensors)
 
         out_idx = []
-        in_idx_order = []   # list of in indices along with tensor. Use this to sort indices of later tensor ahead of former
+        in_idx_order = []  # list of in indices along with tensor. Use this to sort indices of later tensor ahead of former
         in_idx = []
         contracted_idx = []
         # # should be |j   but have j|:  |i * i|i. i is "is_in" and "is_diag"
@@ -250,16 +250,16 @@ class TensorContraction(Tensor):
             elif is_out and is_diag:  # contracted with diagonal on left
                 out_idx.append(idx)
                 in_idx_order.append((idx, self.idx_to_diag_tensors[idx]))
-            elif is_in and is_diag:   # contracted with diagonal on right
+            elif is_in and is_diag:  # contracted with diagonal on right
                 in_idx_order.append((idx, self.idx_to_diag_tensors[idx]))
                 in_idx.append(idx)
             elif is_diag:  # passthrough without multiplication
                 in_idx_order.append((idx, self.idx_to_diag_tensors[idx]))
                 out_idx.append(idx)
                 in_idx.append(idx)
-            elif is_out:   # passhtrough to left without contraction
+            elif is_out:  # passhtrough to left without contraction
                 out_idx.append(idx)
-            elif is_in:    # passthrough to right without contraction
+            elif is_in:  # passthrough to right without contraction
                 in_idx_order.append((idx, self.idx_to_in_tensors[idx]))
                 in_idx.append(idx)
             else:
@@ -293,13 +293,13 @@ class TensorContraction(Tensor):
         # assert self.label != 'T60'
         self.ricci_str = f"{','.join(children_specs)}->{''.join(list(self.out_idx))}|{''.join(list(self.in_idx))}"
 
-        if not self.diag_idx:    # einsum can't materialize diagonal tensors, don't generate string here
+        if not self.diag_idx:  # einsum can't materialize diagonal tensors, don't generate string here
             einsum_in = ','.join(self._process_for_einsum(tensor_spec) for tensor_spec in self.children_specs)
             einsum_out = ''.join(self.out_idx) + ''.join(self.in_idx)
             self._einsum_spec = f'{einsum_in}->{einsum_out}'
         else:
             print("diagonal tensor, no einsum for " + ','.join(self.children_specs))
-            self._einsum_spec = None   # unsupported by torch.einsum
+            self._einsum_spec = None  # unsupported by torch.einsum
 
     @staticmethod
     def _process_for_einsum(spec):
@@ -411,16 +411,18 @@ class TensorContraction(Tensor):
     def __repr__(self):
         return self.__str__()
 
-    def _rename_index(self, old_name: str, new_name: str):
+    def _rename_index(self, old_name: str, new_name: str, allow_clashes=False):
         if old_name == new_name:
             return
 
         print(f'renaming {old_name} to {new_name}')
+
         def rename_dictionary_entry(d: Dict[chr, Any], old_name: chr, new_name: chr):
             if old_name not in d:
                 return
             assert isinstance(d, dict)
-            assert new_name not in d
+            if not allow_clashes:
+                assert new_name not in d
             assert isinstance(old_name, str) and len(old_name) == 1
             assert isinstance(new_name, str) and len(new_name) == 1
             d[new_name] = d[old_name]
@@ -429,6 +431,8 @@ class TensorContraction(Tensor):
         def rename_list_entry(ll, old_name, new_name):  # {len(l.count(old_name)}!=1
             if old_name not in ll:
                 return
+            if not allow_clashes:
+                assert new_name not in ll
             assert isinstance(ll, list)
             assert isinstance(old_name, str)
             assert len(old_name) == 1
@@ -439,8 +443,9 @@ class TensorContraction(Tensor):
             pos = ll.index(old_name)
             ll[pos] = new_name
 
-        assert new_name not in self.all_indices, f"Renaming '{old_name}' to '{new_name}' but '{new_name}' already used in " \
-                                                 f"tensor {str(self)}"
+        if not allow_clashes:
+            assert new_name not in self.all_indices, f"Renaming '{old_name}' to '{new_name}' but '{new_name}' already used in " \
+                                                     f"tensor {str(self)}"
 
         rename_list_entry(self.out_idx, old_name, new_name)
         rename_list_entry(self.in_idx, old_name, new_name)
@@ -474,7 +479,7 @@ class TensorContraction(Tensor):
         largest_pos = GLOBALS.all_indices_list.index(largest_idx)
         # used_indices = self_indices.union(other_indices)
         # unused_indices = GLOBALS.all_indices.difference(used_indices)
-        return GLOBALS.all_indices_list[largest_pos+1:largest_pos+1+count]
+        return GLOBALS.all_indices_list[largest_pos + 1:largest_pos + 1 + count]
 
     # def _generate_unused_indices(self, other: 'ContractibleTensor2', count=1):
     #     """Generate first count indices which aren't being used in current or other tensor"""
@@ -491,11 +496,11 @@ class TensorContraction(Tensor):
         """Partitions a set of dimensions into two sets of equal size. (1,2,1,2) => (1,2), (1,2), 2"""
         d = len(dims)
         assert d % 2 == 0, f"can't partition {len(dims)} number of indices, it's an odd number"
-        left = dims[:d//2]
-        right = dims[d//2:]
+        left = dims[:d // 2]
+        right = dims[d // 2:]
         for (l, r) in zip(left, right):
             assert l == r, f"Can't symmetrically partition dims, dimensions don't match {left}!={right}"
-        return left, right, d//2
+        return left, right, d // 2
 
     @property
     def diag(self) -> 'TensorContraction':
@@ -505,7 +510,7 @@ class TensorContraction(Tensor):
         tensor = TensorContraction(self._original_specs)
 
         for bottom, top in zip(bottom_idx, top_idx):
-            tensor._rename_index(top, bottom)
+            tensor._rename_index(top, bottom, allow_clashes=True)
         return tensor
 
     def trace(self):
@@ -598,7 +603,7 @@ class TensorContraction(Tensor):
         assert x.shape[0] > 0
         assert x.shape[1] > 0
         idx0 = GLOBALS.idx0
-        idx1 = chr(ord(idx0)+1)
+        idx1 = chr(ord(idx0) + 1)
         return TensorContraction.__legacy_init__([idx0 + '|' + idx1], [x], label)
 
     @staticmethod
