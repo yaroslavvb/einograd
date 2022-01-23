@@ -274,19 +274,22 @@ class TensorContraction(Tensor):
             for tensor_id in tensor_id_tuple:
                 in_idx_to_rightmost_tensor[idx] = max(in_idx_to_rightmost_tensor.get(idx, -1), tensor_id)
 
+        print('in_idx_order ', in_idx_order)
+        # print('index i has rank', in_idx_to_rightmost_tensor['i'])
         for rightmost_tensor_id in reversed(sorted(in_idx_to_rightmost_tensor.values())):
             for (idx, tensor_id_tuple) in in_idx_order:
                 if max(tensor_id_tuple) != rightmost_tensor_id:
                     continue
-                if idx in in_idx:
+                if idx in in_idx and not idx in new_in_idx:
                     new_in_idx.append(idx)
 
-        new_in_idx = in_idx
+        in_idx = new_in_idx
         self.out_idx = out_idx
         self.contracted_idx = contracted_idx
         self.in_idx = in_idx
         self.diag_idx = [x for x in out_idx if x in in_idx]  # intersect while preserving order
 
+        # assert self.label != 'T60'
         self.ricci_str = f"{','.join(children_specs)}->{''.join(list(self.out_idx))}|{''.join(list(self.in_idx))}"
 
         if not self.diag_idx:    # einsum can't materialize diagonal tensors, don't generate string here
