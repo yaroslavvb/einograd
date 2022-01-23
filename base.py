@@ -1,7 +1,7 @@
 """Base types used everywhere"""
 
 from abc import ABC, abstractmethod
-from typing import List, Tuple, Dict, Any
+from typing import List, Tuple, Dict, Any, Union
 
 import more_itertools
 import natsort
@@ -118,7 +118,6 @@ class TensorContraction(Tensor):
     # see UnitTestB for illustration
     _original_specs: Tuple[Tuple]  # [('ab|cd', A, 'A'), ...]
     children_specs: List[str]  # [ab|cd, c|c, cd|ef], has to be a list because of relabeling function
-    ricci_str: str    # ab|cd,cd|ef->ab|ef, Like einsum string, but uses Ricci calculus distinction of up/down indices, separating them by |
     children_data: Tuple[torch.Tensor]  # [ones((2,3,2,2)), ones((2,), ones((2, 2, 2, 4))]
     children_labels: Tuple[str]  # ['A', 'B', 'C']
 
@@ -134,6 +133,7 @@ class TensorContraction(Tensor):
     idx_to_dim: Dict[chr, int]  # {a:2, b:3, c:2, d:2, e:2, f:4}
 
     _einsum_str: str  # 'abcd,c,cdef->abef'
+    ricci_str: str    # ab|cd,cd|ef->ab|ef, Like einsum string, but uses Ricci calculus distinction of up/down indices, separating them by |
 
     @property
     def ricci_in(self):
@@ -147,7 +147,7 @@ class TensorContraction(Tensor):
     def __legacy_init__(index_spec_list, tensors, label=None) -> 'TensorContraction':
         return TensorContraction(list((i, t) for (i, t) in zip(index_spec_list, tensors)), label)
 
-    def __init__(self, specs: List[Tuple], label=None):
+    def __init__(self, specs: Union[List[Tuple],Tuple[Tuple]], label=None):
         """
 
         Args:
@@ -411,7 +411,7 @@ class TensorContraction(Tensor):
     def __repr__(self):
         return self.__str__()
 
-    def _rename_index(self, old_name, new_name):
+    def _rename_index(self, old_name: str, new_name: str):
         if old_name == new_name:
             return
 
@@ -485,6 +485,31 @@ class TensorContraction(Tensor):
     #     used_indices = self_indices.union(other_indices)
     #     unused_indices = GLOBALS.all_indices.difference(used_indices)
     #     return tuple(sorted(unused_indices))[:count]
+
+    @staticmethod
+    def _symmetric_partition(dims) -> Tuple[Tuple[int], Tuple[int], int]:
+        """Partitions a set of dimensions into two sets of equal size. (1,2,1,2) => (1,2), (1,2), 2"""
+        d = len(dims)
+        assert d % 2 == 0, f"can't partition {len(dims)} number of indices, it's an odd number"
+        left = dims[:d//2]
+        right = dims[d//2:]
+        for (l, r) in zip(left, right):
+            assert l == r, f"Can't symmetrically partition dims, dimensions don't match {left}!={right}"
+        return left, right, d//2
+
+    @property
+    def diag(self) -> 'TensorContraction':
+        """Takes diagonal of the tensor."""
+        bottom_dims, top_dims, split = self._symmetric_partition(self.in_dims)
+        bottom_idx, top_idx = self.in_idx[:split], self.in_idx[split:]
+        tensor = TensorContraction(self._original_specs)
+
+        for bottom, top in zip(bottom_idx, top_idx):
+            tensor._rename_index(top, bottom)
+        return tensor
+
+    def trace(self):
+        pass
 
     def __mul__(self, other: 'TensorContraction') -> 'TensorContraction':
         """Contraction operation"""

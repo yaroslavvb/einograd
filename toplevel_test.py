@@ -1181,6 +1181,18 @@ def test_diagonal_problem():
     u.check_equal(mat * diag, ma0 @ torch.diag(diag0))
     u.check_equal(diag * mat, torch.diag(diag0) @ ma0)
 
+@pytest.mark.skip(reason="wip")
+def test_diagonal_and_trace():
+    A = TensorContraction([('|ab', u.from_numpy([[1, 2], [3, 4]]), 'A')])
+    u.check_equal(A.diag, [1, 4])
+    u.check_equal(A.trace, 5)
+
+    # matrices are treated as linear forms, so no trace defined, this should raise error
+    with pytest.raises(Exception):
+        A = TensorContraction.from_dense_matrix(u.from_numpy([[1, 2], [3, 4]]))
+        print(A.trace)
+
+
 
 def run_all():
     test_contractible_tensor2()
@@ -1195,6 +1207,7 @@ def run_all():
     test_structured_tensor()
     test_contractible_tensor2()
     test_diagonal_problem()
+    test_diagonal_and_trace()
     # test_derivatives()
 
 
