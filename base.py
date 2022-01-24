@@ -1008,6 +1008,15 @@ class FunctionAddition(CompositeFunction):
             result = result + c(t)
         return result
 
+def make_function_addition(children) -> Function:
+    children = [c for c in children if not isinstance(c, ZeroFunction)]
+    if len(children) == 0:
+        return ZeroFunction()
+    elif len(children) == 1:
+        return children[0]
+    else:
+        return FunctionAddition(children)
+
 
 class FunctionContraction(CompositeFunction):
     def __init__(self, children: List['Function']):
@@ -1024,9 +1033,12 @@ class FunctionContraction(CompositeFunction):
         return result
 
 
-def make_function_contraction(children):
+def make_function_contraction(children) -> Function:
+    for c in children:
+        if isinstance(c, ZeroFunction):
+            return ZeroFunction()
     if len(children) == 0:
-        return IdentityFunction
+        return IdentityFunction()
     elif len(children) == 1:
         return children[0]
     else:
@@ -1051,6 +1063,8 @@ class FunctionComposition(CompositeFunction):
 def make_function_composition(children):
     if len(children) == 0:
         return ZeroFunction()
+    elif isinstance(children[0], ZeroFunction):
+        return ZeroFunction
     elif len(children) == 1:
         return children[0]
     else:
@@ -1114,8 +1128,8 @@ class D_(Operator):
     def __matmul__(self, other):
         if isinstance(other, D_):
             return D_(self.order + other.order)
-        elif isinstance(other, Operator):  # TODO(y): maybe reuse Operator logic here
-            return OperatorComposition([self, other])
+        elif isinstance(other, Operator):
+            assert False, "We don't have any other operators implemented"
         else:
             return NotImplemented
 
@@ -1127,7 +1141,7 @@ class D_(Operator):
 
         # addition rule
         elif isinstance(other, FunctionAddition):
-            return FunctionAddition([self(c) for c in other.children])
+            return make_function_addition(self(c) for c in other.children)
 
         # product rule
         elif isinstance(other, FunctionContraction):
@@ -1141,9 +1155,8 @@ class D_(Operator):
                         mul_children.append(dc1)
                     else:
                         mul_children.append(c2)
-                # add_children.append(FunctionContraction(mul_children))
                 add_children.append(make_function_contraction(mul_children))
-            return FunctionAddition(add_children)
+            return make_function_addition(add_children)
 
         # chain rule
         elif isinstance(other, FunctionComposition):
