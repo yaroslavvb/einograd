@@ -877,7 +877,9 @@ class FunctionSharedImpl(ABC):
     def __mul__(self, other: 'Function'):
         assert isinstance(other, Function)
         if isinstance(other, ZeroFunction):
-            return ZeroFunction
+            return ZeroFunction()
+        if isinstance(other, OneFunction):
+            return self
         if isinstance(self, FunctionContraction):
             return FunctionContraction(self.children + [other])
         else:
@@ -961,7 +963,7 @@ class FunctionAddition(CompositeFunction):
 
 class FunctionContraction(CompositeFunction):
     def __init__(self, children: List['Function']):
-        # assert len(children) >= 2
+        assert len(children) >= 2
         self.children = children
 
     def __call__(self, t: 'Tensor'):
@@ -971,10 +973,18 @@ class FunctionContraction(CompositeFunction):
             result = result * child_result
         return result
 
+def make_function_contraction(children):
+    if len(children) == 0:
+        return OneFunction
+    elif len(children) == 1:
+        return children[0]
+    else:
+        return FunctionContraction(children)
+
 
 class FunctionComposition(CompositeFunction):
     def __init__(self, children: List['Function']):
-        # assert len(children) >= 2
+        assert len(children) >= 2
         self.children = children
 
     def __call__(self, t: 'Tensor'):
@@ -982,6 +992,14 @@ class FunctionComposition(CompositeFunction):
         for c in reversed(self.children[:-1]):
             result = c(result)
         return result
+
+def make_function_composition(children):
+    if len(children) == 0:
+        return ZeroFunction()
+    elif len(children) == 1:
+        return children[0]
+    else:
+        return FunctionComposition(children)
 
 
 class AtomicFunction(Function, FunctionSharedImpl):
@@ -1061,20 +1079,22 @@ class D_(Operator):
             for (i, c1) in enumerate(other.children):
                 mul_children: List[Function] = []
                 dc1 = D(c1)
+                print("differentiating ", c1, " got ", D(c1))
                 for (j, c2) in enumerate(other.children):
                     if i == j:
                         mul_children.append(dc1)
                     else:
                         mul_children.append(c2)
-                add_children.append(FunctionContraction(mul_children))
+                # add_children.append(FunctionContraction(mul_children))
+                add_children.append(make_function_contraction(mul_children))
             return FunctionAddition(add_children)
 
         # chain rule
         elif isinstance(other, FunctionComposition):
             mul_children = []
             for (i, c1) in enumerate(other.children):
-                mul_children.append(FunctionComposition([D(c1)] + other.children[i + 1:]))
-            return FunctionContraction(mul_children)
+                mul_children.append(make_function_composition([D(c1)] + other.children[i + 1:]))
+            return make_function_contraction(mul_children)
 
         else:
             assert False, f"Unknown node type: {other}"
@@ -1782,7 +1802,9 @@ class LinearLayer(AtomicFunction):
         self.W = TensorContraction.from_dense_matrix(W)
 
     def d(self, order=1):
+        assert order >= 1
         if order == 1:
+            # return ZeroFunction()
             return DLinearLayer(self.W, order=order)
         else:
             return ZeroFunction()
@@ -1814,10 +1836,13 @@ class DLinearLayer(AtomicFunction, LinearizedFunction):
         return self.W
 
     def d(self, order=1):
+        print('&&&'*20)
+        print("differentiating Linear Layer", order)
+        assert order >= 1
         if order == 1:
             return self
         else:
-            return Zero
+            return ZeroFunction()
 
 class OldDLinearLayer(AtomicFunction, LinearizedFunction):
     """derivative of Dense Linear Layer"""
@@ -2422,6 +2447,8 @@ class ZeroFunction(Function):
     def __call__(self, x):
         return ZeroTensor()
 
+class OneFunction(Function):
+    pass
 
 def check_close(observed, truth, rtol=1e-5, atol=1e-8, label: str = '') -> None:
     """Convenience method for check_equal with tolerances defaulting to typical errors observed in neural network

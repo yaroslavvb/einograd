@@ -668,6 +668,10 @@ def test_derivatives():
 
     first_deriv = D(loss @ W)
     second_deriv = D(first_deriv)
+    print(second_deriv)
+    print(hess(U))
+    sys.exit()
+    print(second_deriv(x))
 
     print(hess(loss @ W))
     print(D(loss @ W))
