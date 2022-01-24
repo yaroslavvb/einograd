@@ -1196,7 +1196,7 @@ def test_diagonal_and_trace():
 
 
 def run_all():
-    # test_diagonal_and_trace()
+    test_diagonal_and_trace()
 
     test_contractible_tensor2()
     test_partial_contraction_UnitTestC()

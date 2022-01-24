@@ -160,6 +160,8 @@ class TensorContraction(Tensor):
         For instance a_i b_i^i -> results in _i being an input index
         """
         self._original_specs = tuple(specs)
+        self._einsum_spec = None
+        self.copy_tensors = copy_tensors
 
         children_specs: List[str] = []
         tensors: List[torch.Tensor] = []
@@ -290,33 +292,51 @@ class TensorContraction(Tensor):
         self.in_idx = in_idx
         self.diag_idx = [x for x in out_idx if x in in_idx]  # intersect while preserving order
 
+        # delete unique index from list
+        def del_idx(ll, idx_name):
+            assert ll.count(idx_name) == 1, f"Deleting non-existent index {idx_name} from {ll}"
+            del ll[ll.index(idx_name)]
+
         # special handling for two kinds of copy tensors, diagonal operator and trace
         if copy_tensors is not None:
             assert isinstance(copy_tensors, List)
 
             assert len(copy_tensors) == 1
-            if len(copy_tensors[0]) == 4:    # ii|i case
-                pass
-            elif len(copy_tensors[0]) == 3:  #  ii| case
-                pass
+            if len(copy_tensors[0]) == 4:  # ij|k case
+                # 1. both indices must be in-indices
+                # 2. rename top index to match bottom
+                # 3. update input indices
+                in1, in2, _, out1 = copy_tensors[0]
+                assert in1 in self.in_idx
+                assert in2 in self.in_idx
+                assert in1 != in2
+                assert self.idx_to_dim[in1] == self.idx_to_dim[in2]
+                del_idx(self.in_idx, in2)
+                self._rename_index(in2, in1, allow_diagonal_rewiring=True)
 
-            bottom_dims, top_dims, split = self._symmetric_partition(self.in_dims)
-            bottom_idx, top_idx = self.in_idx[:split], self.in_idx[split:]
-            # tensor = TensorContraction(self._original_specs)
+                einsum_in = ','.join(self._process_for_einsum(tensor_spec, allow_repetitions=True) for tensor_spec in self.children_specs)
+                einsum_out = ''.join(self.out_idx) + ''.join(self.in_idx)
+                self._einsum_spec = f'{einsum_in}->{einsum_out}'
+                self.ricci_str = f"{','.join(self.children_specs)}->{''.join(list(self.out_idx))}|{''.join(list(self.in_idx))}"
+            elif len(copy_tensors[0]) == 3:  # ii| case
+                in1, in2, _, = copy_tensors[0]
+                assert in1 in self.in_idx
+                assert in2 in self.in_idx
+                assert in1 != in2
+                assert self.idx_to_dim[in1] == self.idx_to_dim[in2]
+                del_idx(self.in_idx, in1)
+                del_idx(self.in_idx, in2)
+                self._rename_index(in2, in1, allow_diagonal_rewiring=True)
 
-            left_einsum = ','.join(self._process_for_einsum(tensor_spec) for tensor_spec in self.children_specs)
-            right_einsum = ''.join(self.out_idx) + ''.join(self.in_idx)
-
-            # self._einsum_spec = f'{einsum_in}->{einsum_out}'
-            # left_einsum, right_einsum = self._einsum_spec.split('->')
-            # assert new_name + new_name in right_einsum
-            self._einsum_spec = left_einsum + '->' + right_einsum.replace(new_name + new_name, new_name)  # ii->ii  becomes ii->i
-
-            for bottom, top in zip(bottom_idx, top_idx):
-                tensor._rename_index(top, bottom, allow_diagonal_rewiring=True)
+                einsum_in = ','.join(self._process_for_einsum(tensor_spec, allow_repetitions=True) for tensor_spec in self.children_specs)
+                einsum_out = ''.join(self.out_idx) + ''.join(self.in_idx)
+                self._einsum_spec = f'{einsum_in}->{einsum_out}'
+                self.ricci_str = f"{','.join(self.children_specs)}->{''.join(list(self.out_idx))}|{''.join(list(self.in_idx))}"
+            else:
+                assert False, f"Received copy tensors {copy_tensors}, haven't tested this case yet"
         else:
             # assert self.label != 'T60'
-            self.ricci_str = f"{','.join(children_specs)}->{''.join(list(self.out_idx))}|{''.join(list(self.in_idx))}"
+            self.ricci_str = f"{','.join(self.children_specs)}->{''.join(list(self.out_idx))}|{''.join(list(self.in_idx))}"
 
             if not self.diag_idx:  # einsum can't materialize diagonal tensors, don't generate string here
                 einsum_in = ','.join(self._process_for_einsum(tensor_spec) for tensor_spec in self.children_specs)
@@ -327,12 +347,13 @@ class TensorContraction(Tensor):
                 self._einsum_spec = None  # unsupported by torch.einsum
 
     @staticmethod
-    def _process_for_einsum(spec):
+    def _process_for_einsum(spec, allow_repetitions=False):
         """Processes tensor spec for einsum. Drop upper/lower convention, dedup indices occurring both as upper/lower,
         which happens for diagonal tensors"""
         out_spec, in_spec = spec.split('|')
-        assert len(out_spec) == len(set(out_spec)), f"Index occurs multiple times as output in {spec}"
-        assert len(in_spec) == len(set(in_spec)), f"Index occurs multiple times as output in {spec}"
+        if not allow_repetitions:
+            assert len(out_spec) == len(set(out_spec)), f"Index occurs multiple times as output in {spec}"
+            assert len(in_spec) == len(set(in_spec)), f"Index occurs multiple times as output in {spec}"
 
         new_in_spec = []
         for c in in_spec:
@@ -481,7 +502,7 @@ class TensorContraction(Tensor):
         index_overlap = new_name in self.all_indices
         if not allow_diagonal_rewiring:
             assert not index_overlap, f"Renaming '{old_name}' to '{new_name}' but '{new_name}' already used in " \
-                                                     f"tensor {str(self)}"
+                                      f"tensor {str(self)}"
 
         rename_list_entry(self.out_idx, old_name, new_name)
         rename_list_entry(self.in_idx, old_name, new_name)
@@ -491,11 +512,7 @@ class TensorContraction(Tensor):
             self.children_specs[i] = index_spec.replace(old_name, new_name)  # ab|c -> de|c
         #  _einsum_spec: str  # 'ij,jk->ik'
 
-        if self._einsum_spec and allow_diagonal_rewiring and index_overlap:
-            left_einsum, right_einsum = self._einsum_spec.split('->')
-            assert new_name+new_name in right_einsum
-            self._einsum_spec = left_einsum + '->' + right_einsum.replace(new_name+new_name, new_name) # ii->ii  becomes ii->i
-        elif self._einsum_spec:
+        if self._einsum_spec:
             self._einsum_spec = self._einsum_spec.replace(old_name, new_name)
 
         rename_dictionary_entry(self.idx_to_out_tensors, old_name, new_name)
@@ -549,14 +566,19 @@ class TensorContraction(Tensor):
         """Takes diagonal of the tensor."""
         bottom_dims, top_dims, split = self._symmetric_partition(self.in_dims)
         bottom_idx, top_idx = self.in_idx[:split], self.in_idx[split:]
-        tensor = TensorContraction(self._original_specs)
-
+        copy_tensors = []
         for bottom, top in zip(bottom_idx, top_idx):
-            tensor._rename_index(top, bottom, allow_diagonal_rewiring=True)
-        return tensor
+            copy_tensors.append((bottom+top+'|'+bottom))
+        return TensorContraction(self._original_specs, copy_tensors=copy_tensors)
 
+    @property
     def trace(self):
-        pass
+        bottom_dims, top_dims, split = self._symmetric_partition(self.in_dims)
+        bottom_idx, top_idx = self.in_idx[:split], self.in_idx[split:]
+        copy_tensors = []
+        for bottom, top in zip(bottom_idx, top_idx):
+            copy_tensors.append((bottom+top+'|'))
+        return TensorContraction(self._original_specs, copy_tensors=copy_tensors)
 
     def __mul__(self, other: 'TensorContraction') -> 'TensorContraction':
         """Contraction operation"""
@@ -680,9 +702,10 @@ class TensorContraction(Tensor):
             new_terms.append(new_term)
 
         new_einsum_spec = ','.join(new_terms) + '->' + ein_out
-        if new_einsum_spec != self._einsum_spec:
-            print("Warning, diagonal hack")
-            return torch.einsum(new_einsum_spec, *self.children_data)
+        if self.copy_tensors is None:  # have new logic for copy tensors, this is old logic
+            if new_einsum_spec != self._einsum_spec:
+                print("Warning, diagonal hack")
+                return torch.einsum(new_einsum_spec, *self.children_data)
         return torch.einsum(self._einsum_spec, *self.children_data)
 
 
