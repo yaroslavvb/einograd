@@ -4,7 +4,8 @@ import pytest
 import torch
 
 import util
-from layers import *
+#from layers import *
+from base import *
 
 
 def test_test():
@@ -480,7 +481,7 @@ def test_dense():
     # U0 = u.to_pytorch([[5, -6], [-7, 8]])
     x0 = u.to_pytorch([1, 2])
 
-    W = LinearLayer(W0)
+    W = OldLinearLayer(W0)
     x = DenseVector(x0)
     u.check_equal(W(x).value, W0 @ x0)
 
@@ -508,16 +509,29 @@ def test_contract():
     assert isinstance(y * x, Scalar)
 
 
+def _old_create_unit_test_a():
+    W0 = u.to_pytorch([[1, -2], [-3, 4]])
+    U0 = u.to_pytorch([[5, -6], [-7, 8]])
+    x0 = u.to_pytorch([1, 2])
+
+    W = OldLinearLayer(W0)
+    U = OldLinearLayer(U0)
+    nonlin = OldRelu(x0.shape[0])
+    loss = OldLeastSquares(x0.shape[0])
+    x = DenseVector(x0)
+    return W0, U0, x0, x, W, nonlin, U, loss
+
+
 def _create_unit_test_a():
     W0 = u.to_pytorch([[1, -2], [-3, 4]])
     U0 = u.to_pytorch([[5, -6], [-7, 8]])
     x0 = u.to_pytorch([1, 2])
 
-    W = LinearLayer(W0)
-    U = LinearLayer(U0)
-    nonlin = Relu(x0.shape[0])
-    loss = LeastSquares(x0.shape[0])
-    x = DenseVector(x0)
+    W = OldLinearLayer(W0)
+    U = OldLinearLayer(U0)
+    nonlin = OldRelu(x0.shape[0])
+    loss = OldLeastSquares(x0.shape[0])
+    x = TensorContraction.from_dense_vector(x0)
     return W0, U0, x0, x, W, nonlin, U, loss
 
 
@@ -526,22 +540,22 @@ def _create_unit_test_a_sigmoid():
     U0 = u.to_pytorch([[5, -6], [-7, 8]])
     x0 = u.to_pytorch([1, 2])
 
-    W = LinearLayer(W0)
-    U = LinearLayer(U0)
-    nonlin = Sigmoid(x0.shape[0])
-    loss = LeastSquares(x0.shape[0])
+    W = OldLinearLayer(W0)
+    U = OldLinearLayer(U0)
+    nonlin = OldSigmoid(x0.shape[0])
+    loss = OldLeastSquares(x0.shape[0])
     x = DenseVector(x0)
     return W0, U0, x0, x, W, nonlin, U, loss
 
 
 def test_unit_test_a():
-    (W0, U0, x0, x, h1, h2, h3, h4) = _create_unit_test_a()
+    (W0, U0, x0, x, h1, h2, h3, h4) = _old_create_unit_test_a()
     (_unused_W, _unused_nonlin, _unused_U, _unused_loss) = (h1, h2, h3, h4)
 
     # (h1, h2, h3, h4) = (W, nonlin, U, loss)
     f = MemoizedFunctionComposition([h4, h3, h2, h1])
-    assert type(h1) == LinearLayer
-    assert type(h4) == LeastSquares
+    assert type(h1) == OldLinearLayer
+    assert type(h4) == OldLeastSquares
 
     a1 = x
     a2 = h1(a1)  # a_i gives input into i'th layer
@@ -575,7 +589,7 @@ def test_unit_test_a():
     assert u.get_global_forward_flops() == 4
 
     # creating new composition does not reuse cache
-    (W0, U0, x0, x, h1, h2, h3, h4) = _create_unit_test_a()
+    (W0, U0, x0, x, h1, h2, h3, h4) = _old_create_unit_test_a()
     (_unused_W, _unused_nonlin, _unused_U, _unused_loss) = (h1, h2, h3, h4)
     f = MemoizedFunctionComposition([h4, h3, h2, h1])
     _unused_result = f(x)
@@ -584,7 +598,7 @@ def test_unit_test_a():
     # partial composition test
     u.reset_global_forward_flops()
     print('flops ', u.get_global_forward_flops())
-    (W0, U0, x0, x, h1, h2, h3, h4) = _create_unit_test_a()
+    (W0, U0, x0, x, h1, h2, h3, h4) = _old_create_unit_test_a()
     (_unused_W, _unused_nonlin, _unused_U, _unused_loss) = (h1, h2, h3, h4)
     f = MemoizedFunctionComposition([h4, h3, h2, h1])
     # result = f(x)
@@ -609,13 +623,13 @@ def test_unit_test_a():
 
 
 def test_sigmoid():
-    (W0, U0, x0, x, h1, h2, h3, h4) = _create_unit_test_a()
+    (W0, U0, x0, x, h1, h2, h3, h4) = _old_create_unit_test_a()
     (_unused_W, _unused_nonlin, _unused_U, _unused_loss) = (h1, h2, h3, h4)
     a1 = x
     a2 = h1(a1)  # a_i gives input into i'th layer
     _unused_a3 = h2(a2)
 
-    nonlin = Sigmoid(x0.shape[0])
+    nonlin = OldSigmoid(x0.shape[0])
     print('d sigmoid', D(nonlin)(a2))
     print('d2 sigmoid', D2(nonlin)(a2))
     print(D2(nonlin).order)
@@ -628,7 +642,7 @@ def test_sigmoid():
 
 
 def test_relu():
-    f = Relu(2)
+    f = OldRelu(2)
     df = f.d1  # also try D(f)
     # TODO(y): arguments to functions don't have Tensor semantics, so change type
     result = df(DenseVector([-3, 5]))
@@ -640,7 +654,7 @@ def test_relu():
 
 
 def test_least_squares():
-    (W0, U0, x0, x, h1, h2, h3, h4) = _create_unit_test_a()
+    (W0, U0, x0, x, h1, h2, h3, h4) = _old_create_unit_test_a()
     (_unused_W, _unused_nonlin, _unused_U, _unused_loss) = (h1, h2, h3, h4)
     a1 = x
     a2 = h1(a1)  # a_i gives input into i'th layer
@@ -655,13 +669,13 @@ def test_least_squares():
 
 
 def test_contraction():
-    (W0, U0, x0, x, h1, h2, h3, h4) = _create_unit_test_a()
+    (W0, U0, x0, x, h1, h2, h3, h4) = _old_create_unit_test_a()
     (_unused_W, _unused_nonlin, _unused_U, _unused_loss) = (h1, h2, h3, h4)
 
     # (h1, h2, h3, h4) = (W, nonlin, U, loss)
     f = MemoizedFunctionComposition([h4, h3, h2, h1])
-    assert type(h1) == LinearLayer
-    assert type(h4) == LeastSquares
+    assert type(h1) == OldLinearLayer
+    assert type(h4) == OldLeastSquares
 
     a1 = x
     a2 = h1(a1)  # a_i gives input into i'th layer
@@ -1088,8 +1102,35 @@ def test_present0():
 
 @pytest.mark.skip(reason="doesn't work yet")
 def test_derivatives():
-    (W0, U0, x0, x, h1, h2, h3, h4) = _create_unit_test_a()
+    (W0, U0, x0, x, h1, h2, h3, h4) = _old_create_unit_test_a()
     (W, nonlin, U, loss) = (h1, h2, h3, h4)
+
+    (W0, U0, x0, x, h1, h2, h3, h4) = _old_create_unit_test_a()
+    (_unused_W, _unused_nonlin, _unused_U, _unused_loss) = (h1, h2, h3, h4)
+
+    # (h1, h2, h3, h4) = (W, nonlin, U, loss)
+    f = MemoizedFunctionComposition([h4, h3, h2, h1])
+    assert type(h1) == OldLinearLayer
+    assert type(h4) == OldLeastSquares
+
+    a1 = x
+    a2 = h1(a1)  # a_i gives input into i'th layer
+    a3 = h2(a2)
+    a4 = h3(a3)
+    a5 = h4(a4)
+    u.check_equal(a1, [1, 2])
+    u.check_equal(a2, [-3, 5])
+    u.check_equal(a3, [0, 5])
+    u.check_equal(a4, [-30, 40])
+    u.check_equal(a5, 1250)
+
+    # check per-layer Jacobians
+    dh1, dh2, dh3, dh4 = D(h1), D(h2), D(h3), D(h4)
+
+    u.check_equal(dh1(a1), W0)
+    u.check_equal(dh2(a2), [[0, 0], [0, 1]])
+    u.check_equal(dh3(a3), [[5, -6], [-7, 8]])
+
 
     # sum rule
     expr1 = D(W + U)
@@ -1098,7 +1139,7 @@ def test_derivatives():
 
     # product rule
     expr1 = D(W * U)
-    expr2 = D(W) * U + D(U) * W
+    expr2 = D(W) * U + W * D(U)
     u.check_equal(expr1(x), expr2(x))
 
     # chain rule
@@ -1116,7 +1157,7 @@ def test_derivatives():
 
 @pytest.mark.skip(reason="doesn't work yet")
 def test_present():
-    (W0, U0, x0, x, h1, h2, h3, h4) = _create_unit_test_a()
+    (W0, U0, x0, x, h1, h2, h3, h4) = _old_create_unit_test_a()
     (_unused_W, _unused_nonlin, _unused_U, _unused_loss) = (h1, h2, h3, h4)
 
     # (h1, h2, h3, h4) = (W, nonlin, U, loss)
@@ -1195,6 +1236,7 @@ def test_diagonal_and_trace():
 
 
 def run_all():
+    test_derivatives()
     test_diagonal_and_trace()
     test_contractible_tensor2()
     test_partial_contraction_UnitTestC()
@@ -1208,7 +1250,6 @@ def run_all():
     test_structured_tensor()
     test_contractible_tensor2()
     test_diagonal_problem()
-    # test_derivatives()
 
 
 if __name__ == '__main__':
