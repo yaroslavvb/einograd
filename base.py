@@ -891,8 +891,9 @@ class FunctionSharedImpl:
             count = GLOBALS.function_count.get(name, 0)
             GLOBALS.function_count[name] = count + 1
             name = name if count == 0 else f"{name}{count:02d}"
-        assert name not in GLOBALS.function_dict, f"Function {name} has already been created"
-        GLOBALS.function_dict[name] = self
+        if name not in ['@', '+', '*']:   # don't save automatically created composite functions
+            assert name not in GLOBALS.function_dict, f"Function {name} has already been created"
+            GLOBALS.function_dict[name] = self
         self.name = name
 
     # def construct_derivative_layer_name(self, base_name) -> str:
@@ -1903,13 +1904,8 @@ class D_LinearLayer(AtomicFunction, LinearizedFunction):
         return self.W
 
     def d(self, order=1):
-        print('&&&' * 20)
-        print("differentiating Linear Layer", order)
         assert order >= 1
-        if order == 1:
-            return self
-        else:
-            return ZeroFunction()
+        return ZeroFunction()
 
 
 # noinspection PyMissingConstructor

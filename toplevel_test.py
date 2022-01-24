@@ -52,6 +52,7 @@ def _old_create_unit_test_a():
 
 
 def _create_unit_test_a():
+    GLOBALS.reset_function_count()
     W0 = to_pytorch([[1, -2], [-3, 4]])
     U0 = to_pytorch([[5, -6], [-7, 8]])
     x0 = to_pytorch([1, 2])
@@ -689,18 +690,27 @@ def test_derivatives():
     check_equal(dh3(a3), [[5, -6], [-7, 8]])
 
     # simple hessian
+    (W0, U0, x0, x, h1, h2, h3, h4) = _create_unit_test_a()
+    (_unused_W, _unused_nonlin, _unused_U, _unused_loss) = (h1, h2, h3, h4)
+    (W, nonlin, U, loss) = (h1, h2, h3, h4)
+
+    D_W = D(W)
+    assert D_W.human_readable == 'D_W'
+    D_D_W = D(D_W)
+    assert D_D_W.human_readable == 'f_zero'
+
     hess = D @ D
     print(hess(W)(x))
     check_equal(hess(W)(x), 0)
 
+
+
     check_equal(hess(loss)(x), torch.eye(2))
-
     first_deriv = D(loss @ W)
-
     second_deriv = D(first_deriv)
     print(second_deriv)
     print(hess(U))
-    # sys.exit()
+    sys.exit()
     # print(second_deriv(x))
 
     print(hess(loss @ W))
@@ -813,10 +823,10 @@ def test_diagonal_and_trace():
 
 
 def run_all():
-    test_names()
-    sys.exit()
-    test_unit_test_a()
     test_derivatives()
+    sys.exit()
+    test_names()
+    test_unit_test_a()
     test_diagonal_and_trace()
     test_contractible_tensor2()
     test_partial_contraction_UnitTestC()
