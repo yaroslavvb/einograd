@@ -2,24 +2,7 @@ import sys
 
 import pytest
 
-import util
 from base import *
-
-
-def test_test():
-    print('passed')
-
-
-class LinearFunction(Function, Tensor, ABC):
-    """Linear function with mixed Tensor, both upper and lower indices"""
-
-    @abstractmethod
-    def out_dims(self) -> Tuple[int]:
-        pass
-
-    @abstractmethod
-    def in_dims(self) -> Tuple[int]:
-        pass
 
 
 def test_dense():
@@ -73,10 +56,10 @@ def _create_unit_test_a():
     U0 = u.to_pytorch([[5, -6], [-7, 8]])
     x0 = u.to_pytorch([1, 2])
 
-    W = OldLinearLayer(W0)
-    U = OldLinearLayer(U0)
-    nonlin = OldRelu(x0.shape[0])
-    loss = OldLeastSquares(x0.shape[0])
+    W = LinearLayer(W0)
+    U = LinearLayer(U0)
+    nonlin = Relu()
+    loss = LeastSquares()
     x = TensorContraction.from_dense_vector(x0)
     return W0, U0, x0, x, W, nonlin, U, loss
 
@@ -648,10 +631,7 @@ def test_present0():
 
 @pytest.mark.skip(reason="doesn't work yet")
 def test_derivatives():
-    (W0, U0, x0, x, h1, h2, h3, h4) = _old_create_unit_test_a()
-    (W, nonlin, U, loss) = (h1, h2, h3, h4)
-
-    (W0, U0, x0, x, h1, h2, h3, h4) = _old_create_unit_test_a()
+    (W0, U0, x0, x, h1, h2, h3, h4) = _create_unit_test_a()
     (_unused_W, _unused_nonlin, _unused_U, _unused_loss) = (h1, h2, h3, h4)
 
     # (h1, h2, h3, h4) = (W, nonlin, U, loss)
@@ -741,7 +721,7 @@ def test_diagonal_problem():
     mat = TensorContraction.from_dense_matrix(ma0, label='mat')
 
     assert (row*diag).ricci_str == '|a,a|a->|a'
-    util.check_equal(row*diag, row0*diag0)
+    u.check_equal(row*diag, row0*diag0)
 
     assert (diag * col).ricci_str == 'a|a,a|->a|'
     u.check_equal(diag * col, diag0 * col0)

@@ -574,6 +574,13 @@ class TensorContraction(Tensor):
         return TensorContraction(self._original_specs, copy_tensors=copy_tensors)
 
     @property
+    def T(self):
+        # implement for matrices only for now
+        assert len(self.children_specs) == 1
+        assert len(self.children_data[0]) == 2
+        return TensorContraction([(self.children_specs[0], self.children_data[0].T, self.children_labels[0])])
+
+    @property
     def trace(self):
         bottom_dims, top_dims, split = self._symmetric_partition(self.in_dims)
         bottom_idx, top_idx = self.in_idx[:split], self.in_idx[split:]
@@ -671,6 +678,18 @@ class TensorContraction(Tensor):
         idx0 = GLOBALS.idx0
         idx1 = chr(ord(idx0) + 1)
         return TensorContraction.__legacy_init__([idx0 + '|' + idx1], [x], label)
+
+    @staticmethod
+    def from_dense_quadratic_form(x: torch.Tensor, label: str = None) -> 'TensorContraction':
+        """Creates StructuredTensor object treating it as linear map (1 output, 1 input indices) from given matrix
+        """
+        assert isinstance(x, torch.Tensor)
+        assert len(x.shape) == 2
+        assert x.shape[0] > 0
+        assert x.shape[1] > 0
+        idx0 = GLOBALS.idx0
+        idx1 = chr(ord(idx0) + 1)
+        return TensorContraction.__legacy_init__(['|' + idx0 + idx1], [x], label)
 
     @staticmethod
     def from_dense_tensor(tensor_spec: str, x: torch.Tensor, label: str = None) -> 'TensorContraction':
@@ -1264,6 +1283,55 @@ class OldLeastSquares(AtomicFunction):
         else:
             return NotImplemented
 
+class LeastSquares(AtomicFunction):
+    """Least squares loss"""
+
+    def __init__(self, dim: int):
+        self._in_dims = (dim,)
+        self._out_dims = ()
+
+    def __call__(self, x: TensorContraction):
+        x = x.value
+        return DenseScalar((x * x).sum() / 2)
+
+    def d(self, order=1):
+        return DLeastSquares(order=order)
+
+    def __matmul__(self, other):
+        if isinstance(other, AtomicFunction):
+            return MemoizedFunctionComposition([self, other])
+        else:
+            return NotImplemented
+
+class DLeastSquares(AtomicFunction, LinearizedFunction):
+    """Derivatives of LeastSquares"""
+
+    def __init__(self, order: int = 1):
+        self.order = order
+
+    def __call__(self, x: TensorContraction):
+        assert self.order <= 2, "third and higher order derivatives not implemented"
+
+        if self.order == 1:
+            return x.T
+        elif self.order == 2:
+            assert len(x.out_dims) == 1
+            return TensorContraction.from_dense_quadratic_form(torch.eye(x.out_dims[0]))
+
+    @property
+    def d1(self):
+        return self.d(1)
+
+    def d(self, order=1):
+        return DLeastSquares(order=self.order + order)
+
+
+    def __matmul__(self, other):
+        if isinstance(other, AtomicFunction):
+            return MemoizedFunctionComposition([self, other])
+        else:
+            return NotImplemented
+
 
 class OldDLeastSquares(AtomicFunction, LinearizedFunction):
     """Derivatives of LeastSquares"""
@@ -1407,7 +1475,6 @@ class OldRelu(AtomicFunction):
         else:
             return NotImplemented
 
-
 class OldDRelu(AtomicFunction, LinearizedFunction):
     """Derivatives of relu"""
 
@@ -1427,12 +1494,65 @@ class OldDRelu(AtomicFunction, LinearizedFunction):
     def d(self, order=1):
         return Zero
 
-    def __call__(self, x: Tensor) -> DenseLinear:
+    def __call__(self, x):
         if self.order == 1:
-            print('-------', type(x), type(x.value))
             x = x.value
             return DenseLinear(torch.diag((x > torch.tensor(0)).float()))
-        assert False
+            #            return TensorContraction.from_diag_matrix((x > torch.tensor(0)).float())
+
+    def __matmul__(self, other):
+        if isinstance(other, AtomicFunction):
+            return MemoizedFunctionComposition([self, other])
+        else:
+            return NotImplemented
+
+class Relu(AtomicFunction):
+    """One dimensional relu"""
+
+    def out_dims(self):
+        pass
+
+    def in_dims(self):
+        pass
+
+    def __init__(self):
+        pass
+
+    def __call__(self, x: TensorContraction):
+        x = x.value
+        return TensorContraction.from_dense_vector(F.relu(x))
+
+    def d(self, order=1):
+        return DRelu(order=order)
+
+    def __matmul__(self, other):
+        if isinstance(other, AtomicFunction):
+            return MemoizedFunctionComposition([self, other])
+        else:
+            return NotImplemented
+
+
+class DRelu(AtomicFunction, LinearizedFunction):
+    """Derivatives of relu"""
+
+    def __init__(self, order: int = 1):
+        self.order = order
+
+    @property
+    def out_dims(self):
+        return -42
+
+    @property
+    def in_dims(self):
+        return -42
+
+    def d(self, order=1):
+        return Zero
+
+    def __call__(self, x: TensorContraction) -> TensorContraction:
+        if self.order == 1:
+            x = x.value
+            return TensorContraction.from_diag_matrix((x > torch.tensor(0)).float())
 
     def __matmul__(self, other):
         if isinstance(other, AtomicFunction):
@@ -1561,6 +1681,60 @@ class OldLinearLayer(AtomicFunction):
         assert isinstance(result, DenseVector)
         return result
 
+
+class LinearLayer(AtomicFunction):
+    """Dense Linear Layer"""
+
+    W: TensorContraction
+
+    def __init__(self, W):
+        W = u.to_pytorch(W)
+        self.W = TensorContraction.from_dense_matrix(W)
+
+    def d(self, order=1):
+        return DLinearLayer(self.W, order=order)
+
+    @property
+    def out_dims(self) -> Tuple[int]:
+        return self._out_dims
+
+    @property
+    def in_dims(self) -> Tuple[int]:
+        return self._in_dims
+
+    def __call__(self, x: Vector) -> DenseVector:
+        assert isinstance(x, Vector)
+        result = self.W * x
+        assert isinstance(result, DenseVector)
+        return result
+
+
+class DLinearLayer(AtomicFunction, LinearizedFunction):
+    """derivative of Dense Linear Layer"""
+
+    W: DenseLinear
+
+    def in_dims(self):
+        return self.W.in_dims
+
+    def out_dims(self):
+        return self.W.out_dims
+
+    def __init__(self, W: TensorContraction, order=1):
+        # for now, only support matrices
+        self.order = order
+        assert len(W.in_idx) == 1
+        assert len(W.out_idx) == 1
+        self.W = W
+
+    def __call__(self, _unused_x: Tensor) -> DenseLinear:
+        return self.W
+
+    def d(self, order=1):
+        if order == 1:
+            return self
+        else:
+            return Zero
 
 class OldDLinearLayer(AtomicFunction, LinearizedFunction):
     """derivative of Dense Linear Layer"""
