@@ -56,11 +56,11 @@ def _create_unit_test_a():
     U0 = to_pytorch([[5, -6], [-7, 8]])
     x0 = to_pytorch([1, 2])
 
-    W = LinearLayer(W0)
-    U = LinearLayer(U0)
-    nonlin = Relu()
-    loss = LeastSquares()
-    x = TensorContraction.from_dense_vector(x0)
+    W = LinearLayer(W0, name='W')
+    U = LinearLayer(U0, name='U')
+    nonlin = Relu(name='relu')
+    loss = LeastSquares(name='lsqr')
+    x = TensorContraction.from_dense_vector(x0, label='x')
     return W0, U0, x0, x, W, nonlin, U, loss
 
 
@@ -146,9 +146,6 @@ def test_unit_test_a():
     a5 = f[0:](x)  #
     assert u.get_global_forward_flops() == 4
     check_equal(a5, 1250)
-
-    #  next steps
-    # call, "D" operator,
 
 
 def test_sigmoid():
@@ -628,6 +625,26 @@ def test_present0():
     print(hvp.value)
 """
 
+def test_names():
+    (W0, U0, x0, x, h1, h2, h3, h4) = _create_unit_test_a()
+    (_unused_W, _unused_nonlin, _unused_U, _unused_loss) = (h1, h2, h3, h4)
+    (W, nonlin, U, loss) = (h1, h2, h3, h4)
+
+    assert W.human_readable == 'W'
+    assert (W@U).human_readable == '(W@U)'
+    GLOBALS.reset_function_count()
+    new_layer0 = LinearLayer(W0)
+    new_layer1 = LinearLayer(W0)
+    assert new_layer0.human_readable == 'LinearLayer00'
+    assert new_layer1.human_readable == 'LinearLayer01'
+    assert (new_layer0 * new_layer1).human_readable == '(LinearLayer00*LinearLayer01)'
+
+    dW = D(W)
+    assert dW.base_name == 'W'
+    assert dW.human_readable == 'D_W'
+    assert D(W).human_readable == 'D_W'
+    assert (D@D)(W).human_readable == 'f_zero'
+
 
 @pytest.mark.skip(reason="doesn't work yet")
 def test_derivatives():
@@ -784,6 +801,8 @@ def test_diagonal_and_trace():
 
 
 def run_all():
+    test_names()
+    sys.exit()
     test_unit_test_a()
     test_derivatives()
     test_diagonal_and_trace()

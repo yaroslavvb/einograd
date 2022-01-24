@@ -1,26 +1,18 @@
 """Base types used everywhere"""
 
 from abc import ABC, abstractmethod
-from typing import List, Tuple, Dict, Any, Union, Iterable
-
-import numpy as np
+from typing import List, Tuple, Dict, Any
+from typing import Union
 
 import more_itertools
 import natsort
+import numpy as np
 import opt_einsum as oe
 import torch
 from opt_einsum import helpers as oe_helpers
-
-import util as u
-
-import inspect
-import time
-from typing import List, Tuple, Dict, Any
-
-import numpy as np
-import torch
 from torch import nn as nn
 
+import util as u
 
 
 def freeze_multimap(idx_to_dim) -> Dict[Any, Tuple]:
@@ -32,6 +24,7 @@ def freeze_multimap(idx_to_dim) -> Dict[Any, Tuple]:
         d[key] = tuple(value)
     return d
 
+
 # GLOBALS = AttrDict({'DEBUG': True, 'device': 'cpu', 'PURE_TENSOR_NETWORKS': False,
 #               'tensor_count': 0, 'ALLOW_PARTIAL_CONTRACTIONS': False,
 #               'ALLOW_UNSORTED_INDICES': False,
@@ -41,12 +34,15 @@ class _GLOBALS_CLASS:
     __shared_state = {}
 
     idx0: str
+    function_count: Dict[str, int]
+    tensor_count: int
 
     def __init__(self):
         self.DEBUG = True
         self.device = 'cpu'
         self.PURE_TENSOR_NETWORKS = False
         self.tensor_count = 0
+        self.function_count = {}  # {LinearLayer: 1, Relu: 2}
         self.ALLOW_PARTIAL_CONTRACTIONS = True  # allow some indices of the left tensor to remain uncontracted
         self.ALLOW_UNSORTED_INDICES = False
         self.MAX_INDEX_COUNT = 1000
@@ -58,6 +54,12 @@ class _GLOBALS_CLASS:
         name = f'T{self.tensor_count:02d}'
         self.tensor_count += 1
         return name
+
+    def reset_function_count(self):
+        self.function_count = {}
+
+    def reset_tensor_count(self):
+        self.tensor_count = 0
 
 
 GLOBALS = _GLOBALS_CLASS()
@@ -104,6 +106,7 @@ class Tensor(ABC):
     def value(self):
         return torch.Tensor(-498)
 
+
 #    @abstractmethod
 #    def in_dims(self):
 #        pass
@@ -115,17 +118,6 @@ class Tensor(ABC):
 
 class AtomicTensor(Tensor, ABC):
     pass
-
-
-#class CompositeTensor(Tensor, TensorSharedImpl, ABC):
-#    children: List[Tensor]
-#
-#    # TODO(y) drop dimensions? These are are only needed at tensor level
-#    def out_dims(self):
-#        pass
-#
-#    def in_dims(self):
-#        pass
 
 
 class TensorAddition(TensorSharedImpl):
@@ -141,7 +133,6 @@ class TensorAddition(TensorSharedImpl):
         for c in self.children[1:]:
             result = result + c.value
         return result
-
 
     @property
     def flops(self):
@@ -610,14 +601,14 @@ class TensorContraction(Tensor, TensorSharedImpl):
         bottom_idx, top_idx = self.in_idx[:split], self.in_idx[split:]
         copy_tensors = []
         for bottom, top in zip(bottom_idx, top_idx):
-            copy_tensors.append((bottom+top+'|'+bottom))
+            copy_tensors.append((bottom + top + '|' + bottom))
         return TensorContraction(self._original_specs, copy_tensors=copy_tensors)
 
     @property
     def T(self):
         # implement for matrices only for now
-        #assert len(self.children_specs) == 1
-        #assert len(self.children_data[0]) == 2
+        # assert len(self.children_specs) == 1
+        # assert len(self.children_data[0]) == 2
         return TensorContraction(self._original_specs, transposed=True)
         # return TensorContraction([(self.children_specs[0], self.children_data[0].T, self.children_labels[0])])
 
@@ -627,7 +618,7 @@ class TensorContraction(Tensor, TensorSharedImpl):
         bottom_idx, top_idx = self.in_idx[:split], self.in_idx[split:]
         copy_tensors = []
         for bottom, top in zip(bottom_idx, top_idx):
-            copy_tensors.append((bottom+top+'|'))
+            copy_tensors.append((bottom + top + '|'))
         return TensorContraction(self._original_specs, copy_tensors=copy_tensors)
 
     def __mul__(self, other: 'TensorContraction') -> 'TensorContraction':
@@ -862,10 +853,68 @@ class IdentityLinearMap(Tensor):
 # Functions
 ##################################################
 
-class FunctionSharedImpl(ABC):
+class FunctionSharedImpl:
+    name: str  # name of the layer, used for human-readable representation
 
-    name: str   # name of the layer, used for human-readable representation
-    # addition
+    base_name: str  # name of original function, before differentiation
+    order: int    # derivative order
+
+    def __init__(self, name=None, base_name=None, order=0):
+        """Creating name for function:
+        if name is specified, use that
+        if name is not specified, automatically construct it for derivatives
+        """
+
+        # special logic for deriving names for derivatives. Derivatives should always have name, base_name, order
+        if order > 0 or base_name is not None:
+            assert isinstance(self, LinearizedFunction)
+        if isinstance(self, LinearizedFunction):
+            assert order > 0
+
+            self.order = order
+            self.base_name = base_name
+            assert name is None or base_name is None, f"Provided both name ({name}) and base_name ({base_name})"
+
+            if name is not None:
+                assert name.startswith("D_") or name.startswith("DD_") or name.startswith("DDD_")  # first 3 derivatives for now
+                self.name = name
+            elif base_name is not None:
+                # noinspection PyUnresolvedReferences
+                self.name = self.construct_derivative_layer_name(base_name)
+            else:  # DLinearLayer00, DLinearLayer01, etc, use layer name as base name
+                assert base_name is None
+                type_name = type(self).__name__
+                # noinspection PyUnresolvedReferences
+                type_name = self.construct_derivative_layer_name(type_name)
+                self.name = f'{GLOBALS.function_count.get(type_name, 0):02d}'
+                GLOBALS.function_count[type_name] = GLOBALS.function_count.get(type_name, 0) + 1
+        else:
+            if name is None:
+                type_name = type(self).__name__
+                call_count = GLOBALS.function_count.get(type_name, 0)
+                self.name = f'{type_name}{call_count:02d}'
+                GLOBALS.function_count[type_name] = call_count + 1
+            else:
+                assert isinstance(name, str)
+                assert len(name) < 100, f"Function name too long: {len(name)} characters"
+                self.name = name
+
+        assert self.name is not None
+
+    def construct_derivative_layer_name(self, base_name) -> str:
+        """DLinearLayer, DDLinearLayer, DDDLinearLayer, etc"""
+
+        type_name = type(self).__name__
+        print(f"constructing human readable derivative name for {base_name}, {type_name}")
+        assert type_name.startswith("D_") or type_name.startswith("DD_") or type_name.startswith("DDD_")  # first 3 derivatives for now
+        assert isinstance(self, LinearizedFunction) and hasattr(self, "order")
+        assert getattr(self, 'order') >= 1
+        if base_name.startswith('D_'):
+            return "D" * (getattr(self, "order") - 1) + base_name
+        else:
+            return "D" * (getattr(self, "order") - 1) + 'D_' + base_name
+
+
     def __add__(self, other: 'Function'):
         assert isinstance(other, Function)
         if isinstance(other, ZeroFunction):
@@ -880,7 +929,7 @@ class FunctionSharedImpl(ABC):
         assert isinstance(other, Function)
         if isinstance(other, ZeroFunction):
             return ZeroFunction()
-        if isinstance(other, OneFunction):
+        if isinstance(other, IdentityFunction):
             return self
         if isinstance(self, FunctionContraction):
             return FunctionContraction(self.children + [other])
@@ -896,13 +945,6 @@ class FunctionSharedImpl(ABC):
         else:
             return FunctionComposition([self, other])
 
-    def construct_derivative_layer_name(self, base_name):
-        """Creates layer name by prepending correct number of D's, depending on derivative order"""
-        layer_name = type(self).__name__
-        assert isinstance(self, LinearizedFunction) and hasattr(self, "order")
-        assert layer_name.startswith('D')
-        return "D"*(getattr(self, "order")-1) + layer_name
-
     @property
     def human_readable(self):
         """Return human-readable representation of f.
@@ -912,8 +954,9 @@ class FunctionSharedImpl(ABC):
         """
 
         if isinstance(self, CompositeFunction):
-            child_str = '+'.join(str(c) for c in self.children)
-            return f'({self.name}{child_str})'   # (+1+2)
+            child_str = self.name.join(str(c) for c in self.children)
+            assert len(self.children) > 1, "found composition with one child or less"
+            return f'({child_str})'  # (1+2)
         else:
             return self.name
 
@@ -931,13 +974,13 @@ class Function(ABC):
     def __call__(self, t: 'Tensor'):
         pass
 
-    #@abstractmethod
-    #def in_dims(self):
+    # @abstractmethod
+    # def in_dims(self):
     #    """Input (lower) dimensions"""
     #    pass
 
-    #@abstractmethod
-    #def out_dims(self):
+    # @abstractmethod
+    # def out_dims(self):
     #    """Output (upper) dimensions"""
     #    pass
 
@@ -949,10 +992,10 @@ class CompositeFunction(Function, FunctionSharedImpl, ABC):
     children: List[Function]
 
     ## TODO(y) drop dimensions? These are are only needed at tensor level
-    #def out_dims(self):
+    # def out_dims(self):
     #    pass
 
-    #def in_dims(self):
+    # def in_dims(self):
     #    pass
 
 
@@ -960,7 +1003,8 @@ class FunctionAddition(CompositeFunction):
     def __init__(self, children: List['Function']):
         # Must have two children. Otherwise, it's harder to tell if two functions are the same
         # ie, FunctionAddition([f]) == FunctionContraction([f])
-        self.name = '+'
+        super().__init__(name='+')
+        # self.name = '+'
         assert len(children) >= 2
         self.children = children
 
@@ -973,8 +1017,9 @@ class FunctionAddition(CompositeFunction):
 
 class FunctionContraction(CompositeFunction):
     def __init__(self, children: List['Function']):
+        super().__init__(name='*')
         assert len(children) >= 2
-        self.name = '*'
+        # self.name = '*'
         self.children = children
 
     def __call__(self, t: 'Tensor'):
@@ -984,9 +1029,10 @@ class FunctionContraction(CompositeFunction):
             result = result * child_result
         return result
 
+
 def make_function_contraction(children):
     if len(children) == 0:
-        return OneFunction
+        return IdentityFunction
     elif len(children) == 1:
         return children[0]
     else:
@@ -996,7 +1042,8 @@ def make_function_contraction(children):
 # TODO(y): rename to FunctionNesting? compositvefunction/functioncomposition clash
 class FunctionComposition(CompositeFunction):
     def __init__(self, children: List['Function']):
-        self.name = '@'
+        super().__init__(name='@')
+        # self.name = '@'
         assert len(children) >= 2
         self.children = children
 
@@ -1005,6 +1052,7 @@ class FunctionComposition(CompositeFunction):
         for c in reversed(self.children[:-1]):
             result = c(result)
         return result
+
 
 def make_function_composition(children):
     if len(children) == 0:
@@ -1358,6 +1406,7 @@ class DenseLinear(LinearMap, OldContractibleTensor):
         return self._value
 
 
+# noinspection PyMissingConstructor
 class OldLeastSquares(AtomicFunction):
     """Least squares loss"""
 
@@ -1386,18 +1435,19 @@ class OldLeastSquares(AtomicFunction):
         else:
             return NotImplemented
 
+
 class LeastSquares(AtomicFunction):
     """Least squares loss"""
 
-    def __init__(self):
-        pass
+    def __init__(self, name=None):
+        super().__init__(name=name)
 
     def __call__(self, x: TensorContraction):
         x = x.value
         return DenseScalar((x * x).sum() / 2)
 
     def d(self, order=1):
-        return DLeastSquares(order=order)
+        return D_LeastSquares(order=order, base_name=self.human_readable)
 
     @property
     def in_dims(self):
@@ -1414,11 +1464,11 @@ class LeastSquares(AtomicFunction):
             return NotImplemented
 
 
-class DLeastSquares(AtomicFunction, LinearizedFunction):
+class D_LeastSquares(AtomicFunction, LinearizedFunction):
     """Derivatives of LeastSquares"""
 
-    def __init__(self, order: int = 1):
-        self.order = order
+    def __init__(self, name=None, base_name=None, order: int = 1):
+        super().__init__(name=name, base_name=base_name, order=order)
 
     def __call__(self, x: TensorContraction) -> TensorContraction:
         assert self.order <= 2, "third and higher order derivatives not implemented"
@@ -1434,7 +1484,7 @@ class DLeastSquares(AtomicFunction, LinearizedFunction):
         return self.d(1)
 
     def d(self, order=1):
-        return DLeastSquares(order=self.order + order)
+        return D_LeastSquares(order=self.order + order)
 
     def __matmul__(self, other):
         if isinstance(other, AtomicFunction):
@@ -1451,8 +1501,7 @@ class DLeastSquares(AtomicFunction, LinearizedFunction):
         return -48
 
 
-
-
+# noinspection PyMissingConstructor
 class OldDLeastSquares(AtomicFunction, LinearizedFunction):
     """Derivatives of LeastSquares"""
 
@@ -1497,6 +1546,7 @@ class OldDLeastSquares(AtomicFunction, LinearizedFunction):
 
 
 # TODO(y): rename to IdentityLayer (to disambig from IdentityLinearMap)
+# noinspection PyMissingConstructor
 class OldIdentity(AtomicFunction):
     def __init__(self, dim: int):
         self._in_dims = (dim,)
@@ -1523,6 +1573,7 @@ class OldIdentity(AtomicFunction):
             return NotImplemented
 
 
+# noinspection PyMissingConstructor
 class OldDIdentity(AtomicFunction):
     """Derivatives of identity"""
 
@@ -1567,6 +1618,8 @@ class OldDIdentity(AtomicFunction):
 
 import torch.nn.functional as F
 
+
+# noinspection PyMissingConstructor
 class OldRelu(AtomicFunction):
     """One dimensional relu"""
 
@@ -1595,6 +1648,8 @@ class OldRelu(AtomicFunction):
         else:
             return NotImplemented
 
+
+# noinspection PyMissingConstructor
 class OldDRelu(AtomicFunction, LinearizedFunction):
     """Derivatives of relu"""
 
@@ -1626,6 +1681,7 @@ class OldDRelu(AtomicFunction, LinearizedFunction):
         else:
             return NotImplemented
 
+
 class Relu(AtomicFunction):
     """One dimensional relu"""
 
@@ -1635,8 +1691,8 @@ class Relu(AtomicFunction):
     def in_dims(self):
         pass
 
-    def __init__(self):
-        pass
+    def __init__(self, name=None):
+        super().__init__(name=name)
 
     def __call__(self, x: TensorContraction):
         x = x.value
@@ -1644,7 +1700,7 @@ class Relu(AtomicFunction):
 
     def d(self, order=1):
         if order == 1:
-            return DRelu(order=order)
+            return D_Relu(order=order, base_name=self.human_readable)
         else:
             return ZeroFunction()
 
@@ -1655,11 +1711,12 @@ class Relu(AtomicFunction):
             return NotImplemented
 
 
-class DRelu(AtomicFunction, LinearizedFunction):
+class D_Relu(AtomicFunction, LinearizedFunction):
     """Derivatives of relu"""
 
-    def __init__(self, order: int = 1):
-        self.order = order
+    def __init__(self, name=None, base_name=None, order: int = 1):
+        # super.__init__(name=name, base_name=base_name, order=order)
+        super().__init__(name=name, base_name=base_name, order=order)
 
     @property
     def out_dims(self):
@@ -1684,6 +1741,7 @@ class DRelu(AtomicFunction, LinearizedFunction):
             return NotImplemented
 
 
+# noinspection PyMissingConstructor
 class OldSigmoid(AtomicFunction):
     """One dimensional relu"""
 
@@ -1713,6 +1771,7 @@ class OldSigmoid(AtomicFunction):
             return NotImplemented
 
 
+# noinspection PyMissingConstructor
 class OldDSigmoid(AtomicFunction, LinearizedFunction):
     """Derivatives of sigmoid"""
 
@@ -1770,6 +1829,7 @@ class OldDSigmoid(AtomicFunction, LinearizedFunction):
 #         # return DenseVector(data)
 
 
+# noinspection PyMissingConstructor
 class OldLinearLayer(AtomicFunction):
     """Dense Linear Layer"""
 
@@ -1811,15 +1871,15 @@ class LinearLayer(AtomicFunction):
     W: TensorContraction
 
     def __init__(self, W, name=None):
+        super().__init__(name=name)
         W = to_pytorch(W)
         self.W = TensorContraction.from_dense_matrix(W)
-        self.name = name
 
     def d(self, order=1):
         assert order >= 1
         if order == 1:
             # return ZeroFunction()
-            return DLinearLayer(self.W, order=order)
+            return D_LinearLayer(self.W, order=order, base_name=self.human_readable)
         else:
             return ZeroFunction()
 
@@ -1828,10 +1888,10 @@ class LinearLayer(AtomicFunction):
         return self.W * x
 
 
-class DLinearLayer(AtomicFunction, LinearizedFunction):
+class D_LinearLayer(AtomicFunction, LinearizedFunction):
     """derivative of Dense Linear Layer"""
 
-    W:  TensorContraction
+    W: TensorContraction
 
     def in_dims(self):
         return self.W.in_dims
@@ -1840,15 +1900,7 @@ class DLinearLayer(AtomicFunction, LinearizedFunction):
         return self.W.out_dims
 
     def __init__(self, W: TensorContraction, order=1, name=None, base_name=None):
-        """If name is None, derive name by prepending 'D''s to base_name"""
-        # for now, only support matrices
-        assert name is None or base_name is None
-        if name is None:
-            self.name = self.construct_derivative_layer_name(base_name)
-        else:
-            self.name = name
-
-        self.order = order
+        super().__init__(name=name, base_name=base_name, order=order)
         assert len(W.in_idx) == 1
         assert len(W.out_idx) == 1
         self.W = W
@@ -1857,7 +1909,7 @@ class DLinearLayer(AtomicFunction, LinearizedFunction):
         return self.W
 
     def d(self, order=1):
-        print('&&&'*20)
+        print('&&&' * 20)
         print("differentiating Linear Layer", order)
         assert order >= 1
         if order == 1:
@@ -1865,6 +1917,8 @@ class DLinearLayer(AtomicFunction, LinearizedFunction):
         else:
             return ZeroFunction()
 
+
+# noinspection PyMissingConstructor
 class OldDLinearLayer(AtomicFunction, LinearizedFunction):
     """derivative of Dense Linear Layer"""
 
@@ -2011,7 +2065,7 @@ class OldStructuredTensor(Tensor):
     # it supports lazy contraction with other tensors, calculating flop counts
     # performing the calculation
 
-    tag: str   # tag helpful for debugging
+    tag: str  # tag helpful for debugging
     _in_dims: Tuple[int]
     _out_dims: Tuple[int]
 
@@ -2020,7 +2074,7 @@ class OldStructuredTensor(Tensor):
     contracted_indices: List[chr]
 
     _index_spec_list: List[str]  # ['ij|k', 'k|lm'] => [output1|input1,output2|input2]
-    _einsum_spec: str            # 'ij,jk->ik'
+    _einsum_spec: str  # 'ij,jk->ik'
 
     tensors: List[torch.Tensor]  # [torch.ones((2,2,2)), torch.ones((2,2,2))]
 
@@ -2074,7 +2128,7 @@ class OldStructuredTensor(Tensor):
         self.index_out_tensors = {}
         self.index_in_tensors = {}
 
-        all_indices = set()   # all
+        all_indices = set()  # all
 
         # create dict of sizes, by matching indices to tensors
         index_dim = {}  # ['ij'], [np.ones((2,5))] gives {'i': 2, 'j': 5}
@@ -2174,7 +2228,7 @@ class OldStructuredTensor(Tensor):
         assert isinstance(x, torch.Tensor)
         assert x.shape[0] > 0
         if idx is None:
-            idx = ''.join(chr(i) for i in range(ord('i'), ord('i')+len(x.shape)))
+            idx = ''.join(chr(i) for i in range(ord('i'), ord('i') + len(x.shape)))
         return OldStructuredTensor([idx + '|'], [x], tag)
 
     @staticmethod
@@ -2183,7 +2237,7 @@ class OldStructuredTensor(Tensor):
         assert isinstance(x, torch.Tensor)
         assert x.shape[0] > 0
         if idx is None:
-            idx = ''.join(chr(i) for i in range(ord('i'), ord('i')+len(x.shape)))
+            idx = ''.join(chr(i) for i in range(ord('i'), ord('i') + len(x.shape)))
         return OldStructuredTensor(['|' + idx], [x], tag)
 
     @staticmethod
@@ -2210,8 +2264,6 @@ class OldStructuredTensor(Tensor):
         return OldStructuredTensor(['i|i'], [x], tag)
 
     # @staticmethod(x)
-
-    import more_itertools
 
     def rename_index(self, old_name, new_name):
         # print(f"naming {tag}:{old_name} to {new_name}")
@@ -2268,11 +2320,11 @@ class OldStructuredTensor(Tensor):
 
         # check that output/input indices are consecutive
         if self.out_indices:
-            assert self.out_indices[-1] == chr(ord(self.out_indices[0])+len(self.out_indices)-1)
+            assert self.out_indices[-1] == chr(ord(self.out_indices[0]) + len(self.out_indices) - 1)
         # input indices won't be consecutive after partial contractions
         if self.in_indices:
             if not GLOBALS.ALLOW_PARTIAL_CONTRACTIONS:
-                assert self.in_indices[-1] == chr(ord(self.in_indices[0])+len(self.in_indices)-1)
+                assert self.in_indices[-1] == chr(ord(self.in_indices[0]) + len(self.in_indices) - 1)
 
     def contract(self, other: 'OldStructuredTensor'):
         # print('', self._index_spec_list)
@@ -2306,11 +2358,11 @@ class OldStructuredTensor(Tensor):
             incr1 = ord(left.in_indices[0]) - ord(right.out_indices[0])
         if not GLOBALS.ALLOW_UNSORTED_INDICES:
             assert incr1 >= 0, f"Problem matching right tensor's {right.out_indices} to left tensor's {left.in_indices}, " \
-                           f"we are assuming right tensors indices are incremented, never decremented"
+                               f"we are assuming right tensors indices are incremented, never decremented"
 
         for idx in reversed(sorted(set(right.in_indices + right.out_indices + right.contracted_indices))):
             if incr1 > 0:
-                right.rename_index(idx, chr(ord(idx)+incr1))
+                right.rename_index(idx, chr(ord(idx) + incr1))
 
         # then increment uncontracted+output indices of the right to avoid interfering with indices on the left
 
@@ -2327,7 +2379,7 @@ class OldStructuredTensor(Tensor):
             offset = int(ord(max(right.out_indices))) + 1 - int(ord(min(set(left.in_indices).difference(right.out_indices))))
             #  offset = len(set(right.contracted_indices+right.in_indices))
             if offset > 0:
-                left.rename_index(idx, chr(ord(idx)+offset))
+                left.rename_index(idx, chr(ord(idx) + offset))
 
         # print('my new spec list', left._index_spec_list)
         # print('right new spec list', right._index_spec_list)
@@ -2466,8 +2518,19 @@ class ZeroFunction(Function):
     def __call__(self, x):
         return ZeroTensor()
 
-class OneFunction(Function):
-    pass
+    @property
+    def human_readable(self):
+        return 'f_zero'
+
+
+class IdentityFunction(Function):
+    def __call__(self, t: 'Tensor'):
+        return t
+
+    @property
+    def human_readable(self):
+        return 'f_one'
+
 
 def check_close(observed, truth, rtol=1e-5, atol=1e-8, label: str = '') -> None:
     """Convenience method for check_equal with tolerances defaulting to typical errors observed in neural network
