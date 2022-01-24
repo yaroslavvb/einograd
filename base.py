@@ -35,6 +35,7 @@ class _GLOBALS_CLASS:
 
     idx0: str
     function_count: Dict[str, int]
+    function_dict: Dict[str, 'Function']
     tensor_count: int
 
     def __init__(self):
@@ -43,6 +44,7 @@ class _GLOBALS_CLASS:
         self.PURE_TENSOR_NETWORKS = False
         self.tensor_count = 0
         self.function_count = {}  # {LinearLayer: 1, Relu: 2}
+        self.function_dict = {}  # {LinearLayer: 1, Relu: 2}
         self.ALLOW_PARTIAL_CONTRACTIONS = True  # allow some indices of the left tensor to remain uncontracted
         self.ALLOW_UNSORTED_INDICES = False
         self.MAX_INDEX_COUNT = 1000
@@ -57,6 +59,7 @@ class _GLOBALS_CLASS:
 
     def reset_function_count(self):
         self.function_count = {}
+        self.function_dict = {}
 
     def reset_tensor_count(self):
         self.tensor_count = 0
@@ -865,54 +868,44 @@ class FunctionSharedImpl:
         if name is not specified, automatically construct it for derivatives
         """
 
-        # special logic for deriving names for derivatives. Derivatives should always have name, base_name, order
-        if order > 0 or base_name is not None:
-            assert isinstance(self, LinearizedFunction)
-        if isinstance(self, LinearizedFunction):
-            assert order > 0
-
-            self.order = order
-            self.base_name = base_name
-            assert name is None or base_name is None, f"Provided both name ({name}) and base_name ({base_name})"
-
-            if name is not None:
-                assert name.startswith("D_") or name.startswith("DD_") or name.startswith("DDD_")  # first 3 derivatives for now
-                self.name = name
-            elif base_name is not None:
-                # noinspection PyUnresolvedReferences
-                self.name = self.construct_derivative_layer_name(base_name)
-            else:  # DLinearLayer00, DLinearLayer01, etc, use layer name as base name
-                assert base_name is None
-                type_name = type(self).__name__
-                # noinspection PyUnresolvedReferences
-                type_name = self.construct_derivative_layer_name(type_name)
-                self.name = f'{GLOBALS.function_count.get(type_name, 0):02d}'
-                GLOBALS.function_count[type_name] = GLOBALS.function_count.get(type_name, 0) + 1
-        else:
-            if name is None:
-                type_name = type(self).__name__
-                call_count = GLOBALS.function_count.get(type_name, 0)
-                self.name = f'{type_name}{call_count:02d}'
-                GLOBALS.function_count[type_name] = call_count + 1
-            else:
-                assert isinstance(name, str)
-                assert len(name) < 100, f"Function name too long: {len(name)} characters"
-                self.name = name
-
-        assert self.name is not None
-
-    def construct_derivative_layer_name(self, base_name) -> str:
-        """DLinearLayer, DDLinearLayer, DDDLinearLayer, etc"""
-
+        self.order = order
+        self.base_name = base_name
         type_name = type(self).__name__
-        print(f"constructing human readable derivative name for {base_name}, {type_name}")
-        assert type_name.startswith("D_") or type_name.startswith("DD_") or type_name.startswith("DDD_")  # first 3 derivatives for now
-        assert isinstance(self, LinearizedFunction) and hasattr(self, "order")
-        assert getattr(self, 'order') >= 1
-        if base_name.startswith('D_'):
-            return "D" * (getattr(self, "order") - 1) + base_name
-        else:
-            return "D" * (getattr(self, "order") - 1) + 'D_' + base_name
+
+        # if name not provided, fill it in automatically, see diag02
+        if name is None:
+            if order > 0 or base_name is not None or isinstance(self, LinearizedFunction):
+                # make sure that all functions with "order>0" property are linearized functions
+                assert order > 0
+                assert isinstance(self, LinearizedFunction)
+                assert name is None or base_name is None, f"Provided both name ({name}) and base_name ({base_name})"
+                if base_name is None:
+                    assert type_name.startswith('D_')
+                    name = 'D_' * (self.order - 1) + type_name
+                else:
+                    name = 'D_' * self.order + base_name
+            else:
+                name = type_name
+
+            # dedup
+            count = GLOBALS.function_count.get(name, 0)
+            GLOBALS.function_count[name] = count + 1
+            name = name if count == 0 else f"{name}{count:02d}"
+        assert name not in GLOBALS.function_dict, f"Function {name} has already been created"
+        GLOBALS.function_dict[name] = self
+        self.name = name
+
+    # def construct_derivative_layer_name(self, base_name) -> str:
+    #     """DLinearLayer, DDLinearLayer, DDDLinearLayer, etc"""
+    #
+    #     type_name = type(self).__name__
+    #     assert type_name.startswith("D_") or type_name.startswith("DD_") or type_name.startswith("DDD_")  # first 3 derivatives for now
+    #     assert isinstance(self, LinearizedFunction) and hasattr(self, "order")
+    #     assert getattr(self, 'order') >= 1
+    #     if base_name.startswith('D_'):
+    #         return "D" * (getattr(self, "order") - 1) + base_name
+    #     else:
+    #         return "D" * (getattr(self, "order") - 1) + 'D_' + base_name
 
 
     def __add__(self, other: 'Function'):
@@ -1127,6 +1120,7 @@ class D_(Operator):
 
     def __call__(self, other: Function) -> Function:
         # atomic function, defer to existing derivative implementation
+        assert isinstance(other, Function), f"D works on Function type, instead was given {type(Function)}"
         if isinstance(other, AtomicFunction):
             return other.d(self.order)
 

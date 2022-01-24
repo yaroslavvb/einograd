@@ -635,15 +635,27 @@ def test_names():
     GLOBALS.reset_function_count()
     new_layer0 = LinearLayer(W0)
     new_layer1 = LinearLayer(W0)
-    assert new_layer0.human_readable == 'LinearLayer00'
+    assert new_layer0.human_readable == 'LinearLayer'
     assert new_layer1.human_readable == 'LinearLayer01'
-    assert (new_layer0 * new_layer1).human_readable == '(LinearLayer00*LinearLayer01)'
+    assert (new_layer0 * new_layer1).human_readable == '(LinearLayer*LinearLayer01)'
 
+    GLOBALS.reset_function_count()
     dW = D(W)
     assert dW.base_name == 'W'
     assert dW.human_readable == 'D_W'
-    assert D(W).human_readable == 'D_W'
+    assert dW.human_readable == 'D_W'
     assert (D@D)(W).human_readable == 'f_zero'
+
+    loss1 = LeastSquares()
+    dloss1 = D(loss1)
+    dloss2 = D(loss1)
+    assert loss1.human_readable == 'LeastSquares'
+    assert dloss1.human_readable == 'D_LeastSquares'
+    assert dloss2.human_readable == 'D_LeastSquares01'
+
+    ddloss1 = (D@D)(LeastSquares())
+    assert ddloss1.human_readable == 'D_D_LeastSquares01'
+    assert id(GLOBALS.function_dict['D_D_LeastSquares01']) == id(ddloss1)
 
 
 @pytest.mark.skip(reason="doesn't work yet")
