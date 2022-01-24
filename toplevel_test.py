@@ -667,18 +667,19 @@ def test_derivatives():
     check_equal(hess(loss)(x), torch.eye(2))
 
     first_deriv = D(loss @ W)
+
     second_deriv = D(first_deriv)
     print(second_deriv)
     print(hess(U))
-    sys.exit()
-    print(second_deriv(x))
+    # sys.exit()
+    # print(second_deriv(x))
 
     print(hess(loss @ W))
     print(D(loss @ W))
-    sys.exit()
 
     # check end-to-end derivative
-    check_equal(D(f_slow)(x), [-1500, 2000])
+    check_equal(D(f_slow)(x), [-1500, 2001])
+    sys.exit()
 
     # sum rule
     expr1 = D(W + U)
@@ -783,13 +784,13 @@ def test_diagonal_and_trace():
 
 
 def run_all():
+    test_unit_test_a()
     test_derivatives()
     test_diagonal_and_trace()
     test_contractible_tensor2()
     test_partial_contraction_UnitTestC()
     test_contract()
     test_dense()
-    test_unit_test_a()
     test_sigmoid()
     test_relu()
     test_least_squares()

@@ -646,7 +646,7 @@ class TensorContraction(Tensor, TensorSharedImpl):
 
         # this can potentially be relaxed to make contractions commutative
         # however, all current applications only need left-to-right order, and this was the only case that's well tested, hence require it
-        assert len(left.in_idx) >= len(right.out_idx), f"only allow incomplete contraction on left tensor, right tensor must contract all " \
+        assert len(left.in_idx) >= len(right.out_idx), f"only allow partial contraction on left tensor, right tensor must contract all " \
                                                        f"output indices, contracting {left.ricci_out} with {right.ricci_out}"
 
         # rename indices of right to avoid clashes
@@ -863,6 +863,8 @@ class IdentityLinearMap(Tensor):
 ##################################################
 
 class FunctionSharedImpl(ABC):
+
+    name: str   # name of the layer, used for human-readable representation
     # addition
     def __add__(self, other: 'Function'):
         assert isinstance(other, Function)
@@ -894,25 +896,32 @@ class FunctionSharedImpl(ABC):
         else:
             return FunctionComposition([self, other])
 
-    def __str__(self):
-        has_children = hasattr(self, 'children') and self.children
-        type_name = type(self).__name__
-        if type_name.startswith('D') and hasattr(self, "order"):
-            type_name = "D"*(getattr(self, "order")-1) + type_name
-        if has_children:
-            if isinstance(self, FunctionContraction):
-                child_str = '*'.join(str(c) for c in self.children)
-            elif isinstance(self, FunctionComposition):
-                child_str = '@'.join(str(c) for c in self.children)
-            elif isinstance(self, FunctionAddition):
-                child_str = '+'.join(str(c) for c in self.children)
-            return '(' + child_str + ')'
+    def construct_derivative_layer_name(self, base_name):
+        """Creates layer name by prepending correct number of D's, depending on derivative order"""
+        layer_name = type(self).__name__
+        assert isinstance(self, LinearizedFunction) and hasattr(self, "order")
+        assert layer_name.startswith('D')
+        return "D"*(getattr(self, "order")-1) + layer_name
+
+    @property
+    def human_readable(self):
+        """Return human-readable representation of f.
+
+        ie, DLeastSquares@LinearLayer, (DDLeastSquares@LinearLayer)*DLinearLayer
+
+        """
+
+        if isinstance(self, CompositeFunction):
+            child_str = '+'.join(str(c) for c in self.children)
+            return f'({self.name}{child_str})'   # (+1+2)
         else:
-            return type_name
+            return self.name
+
+    def __str__(self):
+        return self.human_readable
 
     def __repr__(self):
         return str(self)
-
 
 
 class Function(ABC):
@@ -951,6 +960,7 @@ class FunctionAddition(CompositeFunction):
     def __init__(self, children: List['Function']):
         # Must have two children. Otherwise, it's harder to tell if two functions are the same
         # ie, FunctionAddition([f]) == FunctionContraction([f])
+        self.name = '+'
         assert len(children) >= 2
         self.children = children
 
@@ -964,6 +974,7 @@ class FunctionAddition(CompositeFunction):
 class FunctionContraction(CompositeFunction):
     def __init__(self, children: List['Function']):
         assert len(children) >= 2
+        self.name = '*'
         self.children = children
 
     def __call__(self, t: 'Tensor'):
@@ -982,8 +993,10 @@ def make_function_contraction(children):
         return FunctionContraction(children)
 
 
+# TODO(y): rename to FunctionNesting? compositvefunction/functioncomposition clash
 class FunctionComposition(CompositeFunction):
     def __init__(self, children: List['Function']):
+        self.name = '@'
         assert len(children) >= 2
         self.children = children
 
@@ -1797,9 +1810,10 @@ class LinearLayer(AtomicFunction):
 
     W: TensorContraction
 
-    def __init__(self, W):
+    def __init__(self, W, name=None):
         W = to_pytorch(W)
         self.W = TensorContraction.from_dense_matrix(W)
+        self.name = name
 
     def d(self, order=1):
         assert order >= 1
@@ -1825,8 +1839,15 @@ class DLinearLayer(AtomicFunction, LinearizedFunction):
     def out_dims(self):
         return self.W.out_dims
 
-    def __init__(self, W: TensorContraction, order=1):
+    def __init__(self, W: TensorContraction, order=1, name=None, base_name=None):
+        """If name is None, derive name by prepending 'D''s to base_name"""
         # for now, only support matrices
+        assert name is None or base_name is None
+        if name is None:
+            self.name = self.construct_derivative_layer_name(base_name)
+        else:
+            self.name = name
+
         self.order = order
         assert len(W.in_idx) == 1
         assert len(W.out_idx) == 1
@@ -1889,7 +1910,6 @@ class MemoizedFunctionComposition:
         self.children = children
         self._saved_outputs = [None] * (len(children) + 1)
 
-        print('initializing with ', children, parent)
         # if creating a sub-composition, extra sanity check that the nodes we are using
         # are already pointing to the parent composition
         for child in children:
@@ -1935,7 +1955,6 @@ class MemoizedFunctionComposition:
         assert id(self._saved_outputs[len(self.children)]) == id(self.arg)
         assert node in self.children, "Trying to compute {node} but it's not in Composition"
         idx = self.children.index(node)
-        print(f'memoized compute on {idx}, {node}')
 
         # last_saved gives position of function whose output has been cached
         # we treat "x" as a dummy function which returns itself, so
