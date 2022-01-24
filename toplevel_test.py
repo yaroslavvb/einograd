@@ -6,42 +6,42 @@ from base import *
 
 
 def test_dense():
-    W0 = u.to_pytorch([[1, -2], [-3, 4]])
-    # U0 = u.to_pytorch([[5, -6], [-7, 8]])
-    x0 = u.to_pytorch([1, 2])
+    W0 = to_pytorch([[1, -2], [-3, 4]])
+    # U0 = to_pytorch([[5, -6], [-7, 8]])
+    x0 = to_pytorch([1, 2])
 
     W = OldLinearLayer(W0)
     x = DenseVector(x0)
-    u.check_equal(W(x).value, W0 @ x0)
+    check_equal(W(x).value, W0 @ x0)
 
     dW = D(W)  # derivative of linear layer
     print(dW(zero) * x)  # get
-    u.check_equal(dW(zero) * x, W0 @ x0)
+    check_equal(dW(zero) * x, W0 @ x0)
 
 
 def test_contract():
-    W0 = u.to_pytorch([[1, -2], [-3, 4]])
-    U0 = u.to_pytorch([[5, -6], [-7, 8]])
+    W0 = to_pytorch([[1, -2], [-3, 4]])
+    U0 = to_pytorch([[5, -6], [-7, 8]])
     W = DenseLinear(W0)
     U = DenseLinear(U0)
-    x0 = u.to_pytorch([1, 2])
+    x0 = to_pytorch([1, 2])
     x = DenseVector(x0)
     y = DenseCovector(x0)
 
-    u.check_equal(W * U, W0 @ U0)
+    check_equal(W * U, W0 @ U0)
     assert isinstance(W * U, LinearMap)
-    u.check_equal(W * x, [-3, 5])
+    check_equal(W * x, [-3, 5])
     assert isinstance(W * x, Vector)
-    u.check_equal(y * W, [-5, 6])
+    check_equal(y * W, [-5, 6])
     assert isinstance(y * W, Covector)
-    u.check_equal(y * x, 5)
+    check_equal(y * x, 5)
     assert isinstance(y * x, Scalar)
 
 
 def _old_create_unit_test_a():
-    W0 = u.to_pytorch([[1, -2], [-3, 4]])
-    U0 = u.to_pytorch([[5, -6], [-7, 8]])
-    x0 = u.to_pytorch([1, 2])
+    W0 = to_pytorch([[1, -2], [-3, 4]])
+    U0 = to_pytorch([[5, -6], [-7, 8]])
+    x0 = to_pytorch([1, 2])
 
     W = OldLinearLayer(W0)
     U = OldLinearLayer(U0)
@@ -52,9 +52,9 @@ def _old_create_unit_test_a():
 
 
 def _create_unit_test_a():
-    W0 = u.to_pytorch([[1, -2], [-3, 4]])
-    U0 = u.to_pytorch([[5, -6], [-7, 8]])
-    x0 = u.to_pytorch([1, 2])
+    W0 = to_pytorch([[1, -2], [-3, 4]])
+    U0 = to_pytorch([[5, -6], [-7, 8]])
+    x0 = to_pytorch([1, 2])
 
     W = LinearLayer(W0)
     U = LinearLayer(U0)
@@ -65,9 +65,9 @@ def _create_unit_test_a():
 
 
 def _create_unit_test_a_sigmoid():
-    W0 = u.to_pytorch([[1, -2], [-3, 4]])
-    U0 = u.to_pytorch([[5, -6], [-7, 8]])
-    x0 = u.to_pytorch([1, 2])
+    W0 = to_pytorch([[1, -2], [-3, 4]])
+    U0 = to_pytorch([[5, -6], [-7, 8]])
+    x0 = to_pytorch([1, 2])
 
     W = OldLinearLayer(W0)
     U = OldLinearLayer(U0)
@@ -91,28 +91,28 @@ def test_unit_test_a():
     a3 = h2(a2)
     a4 = h3(a3)
     a5 = h4(a4)
-    u.check_equal(a1, [1, 2])
-    u.check_equal(a2, [-3, 5])
-    u.check_equal(a3, [0, 5])
-    u.check_equal(a4, [-30, 40])
-    u.check_equal(a5, 1250)
+    check_equal(a1, [1, 2])
+    check_equal(a2, [-3, 5])
+    check_equal(a3, [0, 5])
+    check_equal(a4, [-30, 40])
+    check_equal(a5, 1250)
 
     # check per-layer Jacobians
     dh1, dh2, dh3, dh4 = D(h1), D(h2), D(h3), D(h4)
 
-    u.check_equal(dh1(a1), W0)
-    u.check_equal(dh2(a2), [[0, 0], [0, 1]])
-    u.check_equal(dh3(a3), [[5, -6], [-7, 8]])
-    u.check_equal(dh4(a4), [-30, 40])
-    u.check_equal(dh4(a4) * dh3(a3), [-430, 500])
-    u.check_equal(dh4(a4) * dh3(a3) * dh2(a2), [0, 500])
-    u.check_equal(dh4(a4) * dh3(a3) * dh2(a2) * dh1(a1), [-1500, 2000])
+    check_equal(dh1(a1), W0)
+    check_equal(dh2(a2), [[0, 0], [0, 1]])
+    check_equal(dh3(a3), [[5, -6], [-7, 8]])
+    check_equal(dh4(a4), [-30, 40])
+    check_equal(dh4(a4) * dh3(a3), [-430, 500])
+    check_equal(dh4(a4) * dh3(a3) * dh2(a2), [0, 500])
+    check_equal(dh4(a4) * dh3(a3) * dh2(a2) * dh1(a1), [-1500, 2000])
 
     u.reset_global_forward_flops()
     assert u.get_global_forward_flops() == 0
 
     result = f(x)
-    u.check_equal(result, 1250)
+    check_equal(result, 1250)
     assert u.get_global_forward_flops() == 4
     _unused_result = f(x)
     assert u.get_global_forward_flops() == 4
@@ -133,19 +133,19 @@ def test_unit_test_a():
     # result = f(x)
     a2 = f[3:](x)  # input into h2
     assert u.get_global_forward_flops() == 1
-    u.check_equal(a2, [-3, 5])
+    check_equal(a2, [-3, 5])
 
     a4 = f[1:](x)  #
     assert u.get_global_forward_flops() == 3
-    u.check_equal(a4, [-30, 40])
+    check_equal(a4, [-30, 40])
 
     a5 = f[:](x)  #
     assert u.get_global_forward_flops() == 4
-    u.check_equal(a5, 1250)
+    check_equal(a5, 1250)
 
     a5 = f[0:](x)  #
     assert u.get_global_forward_flops() == 4
-    u.check_equal(a5, 1250)
+    check_equal(a5, 1250)
 
     #  next steps
     # call, "D" operator,
@@ -163,9 +163,9 @@ def test_sigmoid():
     print('d2 sigmoid', D2(nonlin)(a2))
     print(D2(nonlin).order)
 
-    u.check_close(nonlin(a2), [0.0474259, 0.993307])
-    u.check_close(D(nonlin)(a2), [[0.0451767, 0], [0, 0.00664806]])
-    u.check_close(D2(nonlin)(a2), [[[0.0408916, 0], [0, 0]], [[0, 0], [0, -0.00655907]]])
+    check_close(nonlin(a2), [0.0474259, 0.993307])
+    check_close(D(nonlin)(a2), [[0.0451767, 0], [0, 0.00664806]])
+    check_close(D2(nonlin)(a2), [[[0.0408916, 0], [0, 0]], [[0, 0], [0, -0.00655907]]])
 
     assert isinstance(D2(nonlin)(a2), SymmetricBilinearMap)
 
@@ -175,11 +175,11 @@ def test_relu():
     df = f.d1  # also try D(f)
     # TODO(y): arguments to functions don't have Tensor semantics, so change type
     result = df(DenseVector([-3, 5]))
-    u.check_equal(result, [[0, 0], [0, 1]])
+    check_equal(result, [[0, 0], [0, 1]])
 
     df = D(f)
     result = df(DenseVector([-3, 5]))
-    u.check_equal(result, [[0, 0], [0, 1]])
+    check_equal(result, [[0, 0], [0, 1]])
 
 
 def test_least_squares():
@@ -193,8 +193,8 @@ def test_least_squares():
 
     assert isinstance(D(h4)(a4), Covector)
     assert isinstance(D2(h4)(a4), QuadraticForm)
-    u.check_equal(D(h4)(a4), a4)
-    u.check_equal(D2(h4)(a4), torch.eye(2))
+    check_equal(D(h4)(a4), a4)
+    check_equal(D2(h4)(a4), torch.eye(2))
 
 
 def test_contraction():
@@ -214,11 +214,11 @@ def test_contraction():
 
     f(a1)  # run once to save activations
 
-    u.check_equal(a1, [1, 2])
-    u.check_equal(a2, [-3, 5])
-    u.check_equal(a3, [0, 5])
-    u.check_equal(a4, [-30, 40])
-    u.check_equal(a5, 1250)
+    check_equal(a1, [1, 2])
+    check_equal(a2, [-3, 5])
+    check_equal(a3, [0, 5])
+    check_equal(a4, [-30, 40])
+    check_equal(a5, 1250)
 
     # check per-layer Jacobians
     dh1, dh2, dh3, dh4 = D(h1), D(h2), D(h3), D(h4)
@@ -237,11 +237,11 @@ def test_structured_tensor():
     z00 = 2 * torch.ones((d, d))
 
     a = OldStructuredTensor(['a|b', 'b|c'], [x00, y00])
-    u.check_equal(a, x00 @ y00)
+    check_equal(a, x00 @ y00)
     assert a.flops == 2 * d ** 3
 
     x = OldStructuredTensor(['i|j', 'j|k', 'k|l'], [x00, y00, z00])
-    u.check_equal(x, x00 @ y00 @ z00)
+    check_equal(x, x00 @ y00 @ z00)
 
     x = OldStructuredTensor(['a|b'], [x00])
     y = OldStructuredTensor(['a|b'], [y00])
@@ -253,7 +253,7 @@ def test_structured_tensor():
     x.contract(y)
     xyz = x * y * z
     assert xyz.flops == 4 * d ** 3
-    u.check_equal(xyz, x00 @ y00 @ z00)
+    check_equal(xyz, x00 @ y00 @ z00)
 
     x00 = torch.ones((d,))
     ma0 = 2 * torch.ones(d, d)
@@ -267,12 +267,12 @@ def test_structured_tensor():
     #    assert (mat * mat * col * row * mat * mat).flops == 1000 # mixed mode
     assert (col * row).flops == d * d  # outer product
 
-    u.check_equal(row * mat * mat * mat,
+    check_equal(row * mat * mat * mat,
                   x00 @ ma0 @ ma0 @ ma0)
-    u.check_equal(mat * mat * mat * col,
+    check_equal(mat * mat * mat * col,
                   ma0 @ ma0 @ ma0 @ x00)
     colmat000 = torch.outer(x00, x00)
-    u.check_equal(mat * mat * col * row * mat * mat,
+    check_equal(mat * mat * col * row * mat * mat,
                   ma0 @ ma0 @ colmat000 @ ma0 @ ma0)
 
     diag = OldStructuredTensor.from_diag_matrix(3 * x00, 'diag')
@@ -282,7 +282,7 @@ def test_structured_tensor():
     assert (row * mat * diag * mat).flops == 410  # structured reverse mode
 
     print()
-    u.check_equal(row * mat * diag * mat,
+    check_equal(row * mat * diag * mat,
                   x00 @ ma0 @ dia0 @ ma0)
 
     # 3 x 2 grid example from "3 decompositions" section of
@@ -320,11 +320,11 @@ def test_contractible_tensor2():
     print(dia0)
 
     a = TensorContraction([('a|b', x00), ('b|c', y00)])
-    u.check_equal(a.value, x00 @ y00)
+    check_equal(a.value, x00 @ y00)
     assert a.flops == 2 * d ** 3
 
     x = TensorContraction.__legacy_init__(['i|j', 'j|k', 'k|l'], [x00, y00, z00])
-    u.check_equal(x, x00 @ y00 @ z00)
+    check_equal(x, x00 @ y00 @ z00)
 
     x = TensorContraction.__legacy_init__(['a|b'], [x00])
     y = TensorContraction.__legacy_init__(['a|b'], [y00])
@@ -338,7 +338,7 @@ def test_contractible_tensor2():
     print(a)
     c = a * b
     assert c.children_specs == ['a|b', 'b|c']
-    u.check_equal(c, x00 @ x00)
+    check_equal(c, x00 @ x00)
 
     d2 = 2
     rank1 = torch.ones((d2,))
@@ -361,11 +361,11 @@ def test_contractible_tensor2():
     c = a * b
     assert c.children_specs == ['a|', '|b']
 
-    u.check_equal(c, torch.outer(rank1, rank1))
+    check_equal(c, torch.outer(rank1, rank1))
 
     xyz = x * y * z
     assert xyz.flops == 4 * d ** 3
-    u.check_equal(xyz, x00 @ y00 @ z00)
+    check_equal(xyz, x00 @ y00 @ z00)
 
     x00 = torch.ones((d,))
     ma0 = 2 * torch.ones(d, d)
@@ -379,12 +379,12 @@ def test_contractible_tensor2():
     #    assert (mat * mat * col * row * mat * mat).flops == 1000 # mixed mode
     assert (col * row).flops == d * d  # outer product
 
-    u.check_equal(row * mat * mat * mat,
+    check_equal(row * mat * mat * mat,
                   x00 @ ma0 @ ma0 @ ma0)
-    u.check_equal(mat * mat * mat * col,
+    check_equal(mat * mat * mat * col,
                   ma0 @ ma0 @ ma0 @ x00)
     colmat000 = torch.outer(x00, x00)
-    u.check_equal(mat * mat * col * row * mat * mat,
+    check_equal(mat * mat * col * row * mat * mat,
                   ma0 @ ma0 @ colmat000 @ ma0 @ ma0)
 
     diag = TensorContraction.from_diag_matrix(3 * x00, 'diag')
@@ -410,8 +410,8 @@ def test_contractible_tensor2():
     b = TensorContraction.__legacy_init__(['ab|c', 'c|d'], [rank3, rank2], label='b')
     c = a * b
 
-    u.check_equal(row * diag, x00 @ dia0)
-    u.check_equal(row * mat * diag, x00 @ ma0 @ dia0)
+    check_equal(row * diag, x00 @ dia0)
+    check_equal(row * mat * diag, x00 @ ma0 @ dia0)
 
     result = row*mat
     print(result.ricci_str)
@@ -421,7 +421,7 @@ def test_contractible_tensor2():
     assert (row * mat * diag * mat).flops == 410  # structured reverse mode
 
     print()
-    u.check_equal(row * mat * diag * mat,
+    check_equal(row * mat * diag * mat,
                   x00 @ ma0 @ dia0 @ ma0)
 
     # 2x3 grid example from "3 decompositions" section of
@@ -590,11 +590,11 @@ def test_present0():
 
     from einograd import jacobian, forward, to_expression
 
-    W = u.create_linear([[1, -2], [-3, 4]])
-    U = u.create_linear([[5, -6], [-7, 8]])
-    loss_func = u.LeastSquaresLoss()
+    W = create_linear([[1, -2], [-3, 4]])
+    U = create_linear([[5, -6], [-7, 8]])
+    loss_func = LeastSquaresLoss()
     out = to_expression(nn.Sequential(W, U, U, loss_func))
-    data = u.to_pytorch([1, 2])
+    data = to_pytorch([1, 2])
     x = data
     d = jacobian(out, x)
     print(d.flops)  # 600 FLOPs required for optimized backward
@@ -633,53 +633,70 @@ def test_present0():
 def test_derivatives():
     (W0, U0, x0, x, h1, h2, h3, h4) = _create_unit_test_a()
     (_unused_W, _unused_nonlin, _unused_U, _unused_loss) = (h1, h2, h3, h4)
+    (W, nonlin, U, loss) = (h1, h2, h3, h4)
 
     # (h1, h2, h3, h4) = (W, nonlin, U, loss)
     f = MemoizedFunctionComposition([h4, h3, h2, h1])
-    assert type(h1) == OldLinearLayer
-    assert type(h4) == OldLeastSquares
+    f_slow = FunctionComposition([h4, h3, h2, h1])
+    assert type(h1) == LinearLayer
+    assert type(h4) == LeastSquares
 
     a1 = x
     a2 = h1(a1)  # a_i gives input into i'th layer
     a3 = h2(a2)
     a4 = h3(a3)
     a5 = h4(a4)
-    u.check_equal(a1, [1, 2])
-    u.check_equal(a2, [-3, 5])
-    u.check_equal(a3, [0, 5])
-    u.check_equal(a4, [-30, 40])
-    u.check_equal(a5, 1250)
+    check_equal(a1, [1, 2])
+    check_equal(a2, [-3, 5])
+    check_equal(a3, [0, 5])
+    check_equal(a4, [-30, 40])
+    check_equal(a5, 1250)
 
     # check per-layer Jacobians
     dh1, dh2, dh3, dh4 = D(h1), D(h2), D(h3), D(h4)
 
-    u.check_equal(dh1(a1), W0)
-    u.check_equal(dh2(a2), [[0, 0], [0, 1]])
-    u.check_equal(dh3(a3), [[5, -6], [-7, 8]])
+    check_equal(dh1(a1), W0)
+    check_equal(dh2(a2), [[0, 0], [0, 1]])
+    check_equal(dh3(a3), [[5, -6], [-7, 8]])
 
+    # simple hessian
+    hess = D @ D
+    print(hess(W)(x))
+    check_equal(hess(W)(x), 0)
+
+    check_equal(hess(loss)(x), torch.eye(2))
+
+    first_deriv = D(loss @ W)
+    second_deriv = D(first_deriv)
+
+    print(hess(loss @ W))
+    print(D(loss @ W))
+    sys.exit()
+
+    # check end-to-end derivative
+    check_equal(D(f_slow)(x), [-1500, 2000])
 
     # sum rule
     expr1 = D(W + U)
     expr2 = D(W) + D(U)
-    u.check_equal(expr1(x), expr2(x))
+    check_equal(expr1(x), expr2(x))
+    print(D(W @ U)(x).value)
 
-    # product rule
-    expr1 = D(W * U)
-    expr2 = D(W) * U + W * D(U)
-    u.check_equal(expr1(x), expr2(x))
+    result = hess(W)(x)
+    # print(result)
 
-    # chain rule
-    expr1 = D(W @ U)
-    expr2 = (D(W) @ U) * D(U)
-    u.check_equal(expr1(x), expr2(x))
+    # hessian = (D@D)(loss @ W)
+    # hess
+    # print(hessian(a1).value)
+
 
     # chain rule with memoization
-    GLOBALS.function_call_count = 0
-    chain = MemoizedFunctionComposition(W, U)  # TODO(y): replace with W @ U
-    expr1 = D(chain)
-    expr2 = (D(chain[0]) @ chain[1:]) @ D(chain[1])
-    u.check_equal(expr1(x), expr2(x))
-    assert GLOBALS.function_call_count == 2  # value of U(x) is requested twice, but computed once
+    # GLOBALS.function_call_count = 0
+    #chain = MemoizedFunctionComposition([W, U])  # TODO(y): replace with W @ U
+    #expr1 = D(chain)
+    #expr2 = (D(chain[0]) @ chain[1:]) @ D(chain[1])
+    #check_equal(expr1(x), expr2(x))
+    #assert GLOBALS.function_call_count == 2  # value of U(x) is requested twice, but computed once
 
 @pytest.mark.skip(reason="doesn't work yet")
 def test_present():
@@ -689,9 +706,9 @@ def test_present():
     # (h1, h2, h3, h4) = (W, nonlin, U, loss)
     f = MemoizedFunctionComposition([h4, h3, h2, h1])
     hess = (D @ D)(f)
-    u.check_equal(hess(x0), [[900., -1200.], [-1200., 1600.]])
+    check_equal(hess(x0), [[900., -1200.], [-1200., 1600.]])
     hvp = hess(x0) * x0
-    u.check_equal(hvp, [-1500., 2000.])
+    check_equal(hvp, [-1500., 2000.])
     print(hvp.backward_flops)
     print(hvp)
 
@@ -699,9 +716,9 @@ def test_present():
     (_unused_W, _unused_nonlin, _unused_U, _unused_loss) = (h1, h2, h3, h4)
     f = MemoizedFunctionComposition([h4, h3, h2, h1])
     hess = (D @ D)(f)
-    u.check_equal(hess(x0), [[-8.62673, 13.5831], [13.5831, -22.3067]])
+    check_equal(hess(x0), [[-8.62673, 13.5831], [13.5831, -22.3067]])
     hvp = hess(x0) * x0
-    u.check_equal(hvp, [18.5394, -31.0303])
+    check_equal(hvp, [18.5394, -31.0303])
     print(hvp.backward_flops)
     print(hvp)
 
@@ -721,43 +738,43 @@ def test_diagonal_problem():
     mat = TensorContraction.from_dense_matrix(ma0, label='mat')
 
     assert (row*diag).ricci_str == '|a,a|a->|a'
-    u.check_equal(row*diag, row0*diag0)
+    check_equal(row*diag, row0*diag0)
 
     assert (diag * col).ricci_str == 'a|a,a|->a|'
-    u.check_equal(diag * col, diag0 * col0)
+    check_equal(diag * col, diag0 * col0)
 
     assert (row * col).ricci_str == '|a,a|->|'
-    u.check_equal(row * col, row0 @ col0)
+    check_equal(row * col, row0 @ col0)
 
     # weighted dot product
     assert (row * diag * col).ricci_str == '|a,a|a,a|->|'
-    u.check_equal(row * diag * col, (row0 * diag0 * col0).sum())
+    check_equal(row * diag * col, (row0 * diag0 * col0).sum())
 
     # Hadamard product of two diagonal matrices support combining, but not direct materialization for now, need to figure out how to deal
     # with multiple diagonal matrices, only support 1
     assert (diag * diag).ricci_str == 'a|a,a|a->a|a'
     with pytest.raises(Exception):
         print((diag*diag).value)
-        u.check_equal(diag * diag, torch.diag(diag0) @ torch.diag(diag0))
+        check_equal(diag * diag, torch.diag(diag0) @ torch.diag(diag0))
 
     # this case could be enabled in the future, but to reduce scope currently
     # we specialize all contractions to go in left-to-right-order
     with pytest.raises(Exception):
         assert (col * diag).ricci_str == 'a|,a|a->a|'
 
-    u.check_equal(mat * diag, ma0 @ torch.diag(diag0))
-    u.check_equal(diag * mat, torch.diag(diag0) @ ma0)
+    check_equal(mat * diag, ma0 @ torch.diag(diag0))
+    check_equal(diag * mat, torch.diag(diag0) @ ma0)
 
 def test_diagonal_and_trace():
-    A = TensorContraction([('|ab', u.from_numpy([[1, 2], [3, 4]]), 'A')])
+    A = TensorContraction([('|ab', from_numpy([[1, 2], [3, 4]]), 'A')])
     r = A.diag
     assert r.ricci_out == '|a'
-    u.check_equal(A.diag, [1, 4])
-    u.check_equal(A.trace, 5)
+    check_equal(A.diag, [1, 4])
+    check_equal(A.trace, 5)
 
     # matrices are treated as linear forms, so no trace defined, this should raise error
     with pytest.raises(Exception):
-        A = TensorContraction.from_dense_matrix(u.from_numpy([[1, 2], [3, 4]]))
+        A = TensorContraction.from_dense_matrix(from_numpy([[1, 2], [3, 4]]))
         print(A.trace)
 
 
@@ -782,4 +799,4 @@ if __name__ == '__main__':
     run_all()
     sys.exit()
     # noinspection PyTypeChecker,PyUnreachableCode
-    u.run_all_tests(sys.modules[__name__])
+    run_all_tests(sys.modules[__name__])

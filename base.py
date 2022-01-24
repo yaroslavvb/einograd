@@ -3,6 +3,8 @@
 from abc import ABC, abstractmethod
 from typing import List, Tuple, Dict, Any, Union, Iterable
 
+import numpy as np
+
 import more_itertools
 import natsort
 import opt_einsum as oe
@@ -11,6 +13,24 @@ from opt_einsum import helpers as oe_helpers
 
 import util as u
 
+import inspect
+import time
+from typing import List, Tuple, Dict, Any
+
+import numpy as np
+import torch
+from torch import nn as nn
+
+
+
+def freeze_multimap(idx_to_dim) -> Dict[Any, Tuple]:
+    """Freezes dictionary {a->[], b->[]}"""
+    # TODO(y) doesn't fully freeze since dictionaries are mutable
+    d = {}
+    for (key, value) in idx_to_dim.items():
+        assert isinstance(value, List) or isinstance(value, Tuple)
+        d[key] = tuple(value)
+    return d
 
 # GLOBALS = AttrDict({'DEBUG': True, 'device': 'cpu', 'PURE_TENSOR_NETWORKS': False,
 #               'tensor_count': 0, 'ALLOW_PARTIAL_CONTRACTIONS': False,
@@ -52,6 +72,8 @@ class TensorSharedImpl(ABC):
     # addition
     def __add__(self, other: 'Tensor'):
         assert isinstance(other, Tensor)
+        if isinstance(other, ZeroTensor):
+            return self
         if isinstance(self, TensorAddition):
             return TensorAddition(self.children + [other])
         else:
@@ -74,31 +96,39 @@ class Tensor(ABC):
 
     """
 
-    @abstractmethod
-    def in_dims(self):
-        pass
+    @property
+    def flops(self):
+        return -492
 
-    @abstractmethod
-    def out_dims(self):
-        pass
+    @property
+    def value(self):
+        return torch.Tensor(-498)
+
+#    @abstractmethod
+#    def in_dims(self):
+#        pass
+
+#    @abstractmethod
+#    def out_dims(self):
+#        pass
 
 
 class AtomicTensor(Tensor, ABC):
     pass
 
 
-class CompositeTensor(Tensor, TensorSharedImpl, ABC):
-    children: List[Tensor]
+#class CompositeTensor(Tensor, TensorSharedImpl, ABC):
+#    children: List[Tensor]
+#
+#    # TODO(y) drop dimensions? These are are only needed at tensor level
+#    def out_dims(self):
+#        pass
+#
+#    def in_dims(self):
+#        pass
 
-    # TODO(y) drop dimensions? These are are only needed at tensor level
-    def out_dims(self):
-        pass
 
-    def in_dims(self):
-        pass
-
-
-class TensorAddition(CompositeTensor):
+class TensorAddition(TensorSharedImpl):
     def __init__(self, children: List['Tensor']):
         # Must have two children. Otherwise, it's harder to tell if two functions are the same
         # ie, FunctionAddition([f]) == FunctionContraction([f])
@@ -113,8 +143,16 @@ class TensorAddition(CompositeTensor):
         return result
 
 
+    @property
+    def flops(self):
+        total_flops = 0
+        for child in self.children:
+            total_flops += child.flops
+        return total_flops
+
+
 # TODO(y): move order to (tensor, idx, ...)
-class TensorContraction(Tensor):
+class TensorContraction(Tensor, TensorSharedImpl):
     label: str  # tag helpful for debugging
 
     # see UnitTestB for illustration
@@ -136,6 +174,7 @@ class TensorContraction(Tensor):
 
     _einsum_str: str  # 'abcd,c,cdef->abef'
     ricci_str: str  # ab|cd,cd|ef->ab|ef, Like einsum string, but uses Ricci calculus distinction of up/down indices, separating them by |
+    transposed: bool
 
     @property
     def ricci_in(self):
@@ -149,7 +188,7 @@ class TensorContraction(Tensor):
     def __legacy_init__(index_spec_list, tensors, label=None) -> 'TensorContraction':
         return TensorContraction(list((i, t) for (i, t) in zip(index_spec_list, tensors)), label=label)
 
-    def __init__(self, specs: Union[List[Tuple], Tuple[Tuple]], copy_tensors=None, label=None):
+    def __init__(self, specs: Union[List[Tuple], Tuple[Tuple]], copy_tensors=None, label=None, transposed=False):
         """
 
         Args:
@@ -164,6 +203,7 @@ class TensorContraction(Tensor):
         self._original_specs = tuple(specs)
         self._einsum_spec = None
         self.copy_tensors = copy_tensors
+        self.transposed = transposed
 
         children_specs: List[str] = []
         tensors: List[torch.Tensor] = []
@@ -235,9 +275,9 @@ class TensorContraction(Tensor):
                 idx_to_dim[idx] = dim
 
         self.idx_to_dim = idx_to_dim  # TODO(y): use frozendict
-        self.idx_to_out_tensors = u.freeze_multimap(idx_to_out_tensors)
-        self.idx_to_in_tensors = u.freeze_multimap(idx_to_in_tensors)
-        self.idx_to_diag_tensors = u.freeze_multimap(idx_to_diag_tensors)
+        self.idx_to_out_tensors = freeze_multimap(idx_to_out_tensors)
+        self.idx_to_in_tensors = freeze_multimap(idx_to_in_tensors)
+        self.idx_to_diag_tensors = freeze_multimap(idx_to_diag_tensors)
 
         out_idx = []
         in_idx_order = []  # list of in indices along with tensor. Use this to sort indices of later tensor ahead of former
@@ -576,9 +616,10 @@ class TensorContraction(Tensor):
     @property
     def T(self):
         # implement for matrices only for now
-        assert len(self.children_specs) == 1
-        assert len(self.children_data[0]) == 2
-        return TensorContraction([(self.children_specs[0], self.children_data[0].T, self.children_labels[0])])
+        #assert len(self.children_specs) == 1
+        #assert len(self.children_data[0]) == 2
+        return TensorContraction(self._original_specs, transposed=True)
+        # return TensorContraction([(self.children_specs[0], self.children_data[0].T, self.children_labels[0])])
 
     @property
     def trace(self):
@@ -727,7 +768,8 @@ class TensorContraction(Tensor):
             if new_einsum_spec != self._einsum_spec:
                 print("Warning, diagonal hack")
                 return torch.einsum(new_einsum_spec, *self.children_data)
-        return torch.einsum(self._einsum_spec, *self.children_data)
+        result = torch.einsum(self._einsum_spec, *self.children_data)
+        return result.T if self.transposed else result
 
 
 class ZeroTensor(Tensor):
@@ -824,6 +866,8 @@ class FunctionSharedImpl(ABC):
     # addition
     def __add__(self, other: 'Function'):
         assert isinstance(other, Function)
+        if isinstance(other, ZeroFunction):
+            return self
         if isinstance(self, FunctionAddition):
             return FunctionAddition(self.children + [other])
         else:
@@ -832,6 +876,8 @@ class FunctionSharedImpl(ABC):
     # contraction
     def __mul__(self, other: 'Function'):
         assert isinstance(other, Function)
+        if isinstance(other, ZeroFunction):
+            return ZeroFunction
         if isinstance(self, FunctionContraction):
             return FunctionContraction(self.children + [other])
         else:
@@ -846,6 +892,26 @@ class FunctionSharedImpl(ABC):
         else:
             return FunctionComposition([self, other])
 
+    def __str__(self):
+        has_children = hasattr(self, 'children') and self.children
+        type_name = type(self).__name__
+        if type_name.startswith('D') and hasattr(self, "order"):
+            type_name = "D"*(getattr(self, "order")-1) + type_name
+        if has_children:
+            if isinstance(self, FunctionContraction):
+                child_str = '*'.join(str(c) for c in self.children)
+            elif isinstance(self, FunctionComposition):
+                child_str = '@'.join(str(c) for c in self.children)
+            elif isinstance(self, FunctionAddition):
+                child_str = '+'.join(str(c) for c in self.children)
+            return '(' + child_str + ')'
+        else:
+            return type_name
+
+    def __repr__(self):
+        return str(self)
+
+
 
 class Function(ABC):
     """Differentiable function"""
@@ -854,15 +920,15 @@ class Function(ABC):
     def __call__(self, t: 'Tensor'):
         pass
 
-    @abstractmethod
-    def in_dims(self):
-        """Input (lower) dimensions"""
-        pass
+    #@abstractmethod
+    #def in_dims(self):
+    #    """Input (lower) dimensions"""
+    #    pass
 
-    @abstractmethod
-    def out_dims(self):
-        """Output (upper) dimensions"""
-        pass
+    #@abstractmethod
+    #def out_dims(self):
+    #    """Output (upper) dimensions"""
+    #    pass
 
 
 class CompositeFunction(Function, FunctionSharedImpl, ABC):
@@ -871,12 +937,12 @@ class CompositeFunction(Function, FunctionSharedImpl, ABC):
 
     children: List[Function]
 
-    # TODO(y) drop dimensions? These are are only needed at tensor level
-    def out_dims(self):
-        pass
+    ## TODO(y) drop dimensions? These are are only needed at tensor level
+    #def out_dims(self):
+    #    pass
 
-    def in_dims(self):
-        pass
+    #def in_dims(self):
+    #    pass
 
 
 class FunctionAddition(CompositeFunction):
@@ -895,24 +961,25 @@ class FunctionAddition(CompositeFunction):
 
 class FunctionContraction(CompositeFunction):
     def __init__(self, children: List['Function']):
-        assert len(children) >= 2
+        # assert len(children) >= 2
         self.children = children
 
     def __call__(self, t: 'Tensor'):
-        result = self.children[0]
+        result = self.children[0](t)
         for c in self.children[1:]:
-            result = result * c(t)
+            child_result = c(t)
+            result = result * child_result
         return result
 
 
 class FunctionComposition(CompositeFunction):
     def __init__(self, children: List['Function']):
-        assert len(children) >= 2
+        # assert len(children) >= 2
         self.children = children
 
     def __call__(self, t: 'Tensor'):
-        result = self.children[-1]
-        for c in self.children[:-1]:
+        result = self.children[-1](t)
+        for c in reversed(self.children[:-1]):
             result = c(result)
         return result
 
@@ -1009,6 +1076,9 @@ class D_(Operator):
                 mul_children.append(FunctionComposition([D(c1)] + other.children[i + 1:]))
             return FunctionContraction(mul_children)
 
+        else:
+            assert False, f"Unknown node type: {other}"
+
 
 D = D_(order=1)
 D2 = D @ D
@@ -1104,7 +1174,7 @@ class OldContractibleTensor(Tensor, ABC):
 
 class DenseScalar(Scalar):
     def __init__(self, value):
-        value = u.to_pytorch(value)
+        value = to_pytorch(value)
         assert len(value.shape) == 0
         self._value = value
 
@@ -1126,7 +1196,7 @@ class DenseVector(Vector, OldContractibleTensor):
     _out_dims: Tuple[int]
 
     def __init__(self, value):
-        value = u.to_pytorch(value)
+        value = to_pytorch(value)
         assert len(value.shape) == 1
         assert value.shape[0] > 0
         self._out_dims = value.shape
@@ -1154,7 +1224,7 @@ class DenseCovector(Covector, OldContractibleTensor):
     _in_dims: Tuple[int]
 
     def __init__(self, value):
-        value = u.to_pytorch(value)
+        value = to_pytorch(value)
         assert len(value.shape) == 1
         assert value.shape[0] > 0
         self._in_dims = value.shape
@@ -1181,7 +1251,7 @@ class DenseSymmetricBilinear(SymmetricBilinearMap, OldContractibleTensor):
     """Symmetric bilinear map represented with a rank-3 tensor"""
 
     def __init__(self, value):
-        value = u.to_pytorch(value)
+        value = to_pytorch(value)
         assert len(value.shape) == 3
         assert value.shape[0] > 0
         assert value.shape[1] > 0
@@ -1208,7 +1278,7 @@ class DenseQuadraticForm(QuadraticForm, OldContractibleTensor):
     """Symmetric bilinear map represented with a rank-2 tensor"""
 
     def __init__(self, value):
-        value = u.to_pytorch(value)
+        value = to_pytorch(value)
         assert len(value.shape) == 2
         assert value.shape[0] > 0
         assert value.shape[1] > 0
@@ -1234,7 +1304,7 @@ class DenseLinear(LinearMap, OldContractibleTensor):
     """Symmetric linear map represented with a rank-2 tensor"""
 
     def __init__(self, value):
-        value = u.to_pytorch(value)
+        value = to_pytorch(value)
         assert len(value.shape) == 2
         assert value.shape[0] > 0
         assert value.shape[1] > 0
@@ -1286,9 +1356,8 @@ class OldLeastSquares(AtomicFunction):
 class LeastSquares(AtomicFunction):
     """Least squares loss"""
 
-    def __init__(self, dim: int):
-        self._in_dims = (dim,)
-        self._out_dims = ()
+    def __init__(self):
+        pass
 
     def __call__(self, x: TensorContraction):
         x = x.value
@@ -1297,11 +1366,20 @@ class LeastSquares(AtomicFunction):
     def d(self, order=1):
         return DLeastSquares(order=order)
 
+    @property
+    def in_dims(self):
+        return -43
+
+    @property
+    def out_dims(self):
+        return -45
+
     def __matmul__(self, other):
         if isinstance(other, AtomicFunction):
-            return MemoizedFunctionComposition([self, other])
+            return FunctionComposition([self, other])
         else:
             return NotImplemented
+
 
 class DLeastSquares(AtomicFunction, LinearizedFunction):
     """Derivatives of LeastSquares"""
@@ -1309,7 +1387,7 @@ class DLeastSquares(AtomicFunction, LinearizedFunction):
     def __init__(self, order: int = 1):
         self.order = order
 
-    def __call__(self, x: TensorContraction):
+    def __call__(self, x: TensorContraction) -> TensorContraction:
         assert self.order <= 2, "third and higher order derivatives not implemented"
 
         if self.order == 1:
@@ -1325,12 +1403,21 @@ class DLeastSquares(AtomicFunction, LinearizedFunction):
     def d(self, order=1):
         return DLeastSquares(order=self.order + order)
 
-
     def __matmul__(self, other):
         if isinstance(other, AtomicFunction):
             return MemoizedFunctionComposition([self, other])
         else:
             return NotImplemented
+
+    @property
+    def in_dims(self):
+        return -47
+
+    @property
+    def out_dims(self):
+        return -48
+
+
 
 
 class OldDLeastSquares(AtomicFunction, LinearizedFunction):
@@ -1523,7 +1610,10 @@ class Relu(AtomicFunction):
         return TensorContraction.from_dense_vector(F.relu(x))
 
     def d(self, order=1):
-        return DRelu(order=order)
+        if order == 1:
+            return DRelu(order=order)
+        else:
+            return ZeroFunction()
 
     def __matmul__(self, other):
         if isinstance(other, AtomicFunction):
@@ -1655,7 +1745,7 @@ class OldLinearLayer(AtomicFunction):
     W: DenseLinear
 
     def __init__(self, W):
-        W = u.to_pytorch(W)
+        W = to_pytorch(W)
         assert len(W.shape) == 2
         assert W.shape[0] >= 1
         assert W.shape[1] >= 1
@@ -1688,31 +1778,24 @@ class LinearLayer(AtomicFunction):
     W: TensorContraction
 
     def __init__(self, W):
-        W = u.to_pytorch(W)
+        W = to_pytorch(W)
         self.W = TensorContraction.from_dense_matrix(W)
 
     def d(self, order=1):
-        return DLinearLayer(self.W, order=order)
+        if order == 1:
+            return DLinearLayer(self.W, order=order)
+        else:
+            return ZeroFunction()
 
-    @property
-    def out_dims(self) -> Tuple[int]:
-        return self._out_dims
-
-    @property
-    def in_dims(self) -> Tuple[int]:
-        return self._in_dims
-
-    def __call__(self, x: Vector) -> DenseVector:
-        assert isinstance(x, Vector)
-        result = self.W * x
-        assert isinstance(result, DenseVector)
-        return result
+    def __call__(self, x: TensorContraction) -> TensorContraction:
+        assert isinstance(x, TensorContraction)
+        return self.W * x
 
 
 class DLinearLayer(AtomicFunction, LinearizedFunction):
     """derivative of Dense Linear Layer"""
 
-    W: DenseLinear
+    W:  TensorContraction
 
     def in_dims(self):
         return self.W.in_dims
@@ -1727,7 +1810,7 @@ class DLinearLayer(AtomicFunction, LinearizedFunction):
         assert len(W.out_idx) == 1
         self.W = W
 
-    def __call__(self, _unused_x: Tensor) -> DenseLinear:
+    def __call__(self, _unused_x: Tensor) -> TensorContraction:
         return self.W
 
     def d(self, order=1):
@@ -2333,3 +2416,124 @@ class TensorContractionChain:
         for c in self.children[1:]:
             result = result.contract(c)
         return result.value
+
+
+class ZeroFunction(Function):
+    def __call__(self, x):
+        return ZeroTensor()
+
+
+def check_close(observed, truth, rtol=1e-5, atol=1e-8, label: str = '') -> None:
+    """Convenience method for check_equal with tolerances defaulting to typical errors observed in neural network
+    ops in float32 precision."""
+    return check_equal(observed, truth, rtol=rtol, atol=atol, label=label)
+
+
+def check_equal(observed, truth, rtol=1e-9, atol=1e-12, label: str = '') -> None:
+    """
+    Assert fail any entries in two arrays are not close to each to desired tolerance. See np.allclose for meaning of rtol, atol
+
+    """
+
+    if isinstance(truth, ZeroTensor):
+        assert isinstance(observed, ZeroTensor) or observed == 0
+        return
+    if isinstance(observed, ZeroTensor):
+        assert isinstance(truth, ZeroTensor) or truth == 0
+        return
+
+    if hasattr(observed, 'value'):
+        observed = observed.value
+
+    if hasattr(truth, 'value'):
+        truth = truth.value
+
+    # special handling for lists, which could contain
+    # if type(observed) == List and type(truth) == List:
+    #    for a, b in zip(observed, truth):
+    #        check_equal(a, b)
+
+    truth = to_numpy(truth)
+    observed = to_numpy(observed)
+
+    # broadcast to match shapes if necessary
+    if observed.shape != truth.shape:
+        #        common_shape = (np.zeros_like(observed) + np.zeros_like(truth)).shape
+        truth = truth + np.zeros_like(observed)
+        observed = observed + np.zeros_like(truth)
+
+    assert truth.shape == observed.shape, f"Observed shape {observed.shape}, expected shape {truth.shape}"
+    # run np.testing.assert_allclose for extra info on discrepancies
+    if not np.allclose(observed, truth, rtol=rtol, atol=atol, equal_nan=True):
+        print(f'Numerical testing failed for {label}')
+        np.testing.assert_allclose(truth, observed, rtol=rtol, atol=atol, equal_nan=True)
+
+
+def create_linear(mat):
+    mat = to_pytorch(mat)
+    d1, d2 = mat.shape
+    layer = nn.Linear(d1, d2, bias=False)
+    layer.weight.data = mat
+    return layer
+
+
+def to_pytorch(x) -> torch.Tensor:
+    """Convert numeric object to floating point PyTorch tensor."""
+    return from_numpy(to_numpy(x))
+
+
+def to_numpy(x, dtype: np.dtype = None) -> np.ndarray:
+    """
+    Convert numeric object to floating point numpy array. If dtype is not specified, use PyTorch default dtype.
+
+    Args:
+        x: numeric object
+        dtype: numpy dtype, must be floating point
+
+    Returns:
+        floating point numpy array
+    """
+
+    assert np.issubdtype(dtype, np.floating), "dtype must be real-valued floating point"
+
+    # Convert to normal_form expression from a special form (https://reference.wolfram.com/language/ref/Normal.html)
+    if hasattr(x, 'normal_form'):
+        x = x.normal_form()
+
+    if type(x) == np.ndarray:
+        assert np.issubdtype(x.dtype, np.floating), f"numpy type promotion not implemented for {x.dtype}"
+
+    if hasattr(x, "detach"):
+        dtype = pytorch_dtype_to_floating_numpy_dtype(x.dtype)
+        return x.detach().cpu().numpy().astype(dtype)
+
+    # list or tuple, iterate inside to convert PyTorch arrrays
+    if type(x) in [list, tuple]:
+        x = [to_numpy(r) for r in x]
+
+    # Some Python type, use numpy conversion
+    result = np.array(x, dtype=dtype)
+    assert np.issubdtype(result.dtype, np.number), f"Provided object ({result}) is not numeric, has type {result.dtype}"
+    if dtype is None:
+        return result.astype(pytorch_dtype_to_floating_numpy_dtype(torch.get_default_dtype()))
+    return result
+
+
+def pytorch_dtype_to_floating_numpy_dtype(dtype):
+    """Converts PyTorch dtype to numpy floating point dtype, defaulting to np.float32 for non-floating point types."""
+    if dtype == torch.float64:
+        dtype = np.float64
+    elif dtype == torch.float32:
+        dtype = np.float32
+    elif dtype == torch.float16:
+        dtype = np.float16
+    else:
+        dtype = np.float32
+    return dtype
+
+
+def from_numpy(x) -> torch.Tensor:
+    if isinstance(x, torch.Tensor):
+        return x
+    else:
+        return torch.tensor(x)
