@@ -1181,7 +1181,6 @@ def test_diagonal_problem():
     u.check_equal(mat * diag, ma0 @ torch.diag(diag0))
     u.check_equal(diag * mat, torch.diag(diag0) @ ma0)
 
-@pytest.mark.skip(reason="wip")
 def test_diagonal_and_trace():
     A = TensorContraction([('|ab', u.from_numpy([[1, 2], [3, 4]]), 'A')])
     r = A.diag
@@ -1197,7 +1196,6 @@ def test_diagonal_and_trace():
 
 def run_all():
     test_diagonal_and_trace()
-
     test_contractible_tensor2()
     test_partial_contraction_UnitTestC()
     test_contract()
