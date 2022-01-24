@@ -1,7 +1,7 @@
 """Base types used everywhere"""
 
 from abc import ABC, abstractmethod
-from typing import List, Tuple, Dict, Any, Union
+from typing import List, Tuple, Dict, Any, Union, Iterable
 
 import more_itertools
 import natsort
@@ -145,9 +145,9 @@ class TensorContraction(Tensor):
 
     @staticmethod
     def __legacy_init__(index_spec_list, tensors, label=None) -> 'TensorContraction':
-        return TensorContraction(list((i, t) for (i, t) in zip(index_spec_list, tensors)), label)
+        return TensorContraction(list((i, t) for (i, t) in zip(index_spec_list, tensors)), label=label)
 
-    def __init__(self, specs: Union[List[Tuple], Tuple[Tuple]], label=None):
+    def __init__(self, specs: Union[List[Tuple], Tuple[Tuple]], copy_tensors=None, label=None):
         """
 
         Args:
@@ -290,16 +290,41 @@ class TensorContraction(Tensor):
         self.in_idx = in_idx
         self.diag_idx = [x for x in out_idx if x in in_idx]  # intersect while preserving order
 
-        # assert self.label != 'T60'
-        self.ricci_str = f"{','.join(children_specs)}->{''.join(list(self.out_idx))}|{''.join(list(self.in_idx))}"
+        # special handling for two kinds of copy tensors, diagonal operator and trace
+        if copy_tensors is not None:
+            assert isinstance(copy_tensors, List)
 
-        if not self.diag_idx:  # einsum can't materialize diagonal tensors, don't generate string here
-            einsum_in = ','.join(self._process_for_einsum(tensor_spec) for tensor_spec in self.children_specs)
-            einsum_out = ''.join(self.out_idx) + ''.join(self.in_idx)
-            self._einsum_spec = f'{einsum_in}->{einsum_out}'
+            assert len(copy_tensors) == 1
+            if len(copy_tensors[0]) == 4:    # ii|i case
+                pass
+            elif len(copy_tensors[0]) == 3:  #  ii| case
+                pass
+
+            bottom_dims, top_dims, split = self._symmetric_partition(self.in_dims)
+            bottom_idx, top_idx = self.in_idx[:split], self.in_idx[split:]
+            # tensor = TensorContraction(self._original_specs)
+
+            left_einsum = ','.join(self._process_for_einsum(tensor_spec) for tensor_spec in self.children_specs)
+            right_einsum = ''.join(self.out_idx) + ''.join(self.in_idx)
+
+            # self._einsum_spec = f'{einsum_in}->{einsum_out}'
+            # left_einsum, right_einsum = self._einsum_spec.split('->')
+            # assert new_name + new_name in right_einsum
+            self._einsum_spec = left_einsum + '->' + right_einsum.replace(new_name + new_name, new_name)  # ii->ii  becomes ii->i
+
+            for bottom, top in zip(bottom_idx, top_idx):
+                tensor._rename_index(top, bottom, allow_diagonal_rewiring=True)
         else:
-            print("diagonal tensor, no einsum for " + ','.join(self.children_specs))
-            self._einsum_spec = None  # unsupported by torch.einsum
+            # assert self.label != 'T60'
+            self.ricci_str = f"{','.join(children_specs)}->{''.join(list(self.out_idx))}|{''.join(list(self.in_idx))}"
+
+            if not self.diag_idx:  # einsum can't materialize diagonal tensors, don't generate string here
+                einsum_in = ','.join(self._process_for_einsum(tensor_spec) for tensor_spec in self.children_specs)
+                einsum_out = ''.join(self.out_idx) + ''.join(self.in_idx)
+                self._einsum_spec = f'{einsum_in}->{einsum_out}'
+            else:
+                print("diagonal tensor, no einsum for " + ','.join(self.children_specs))
+                self._einsum_spec = None  # unsupported by torch.einsum
 
     @staticmethod
     def _process_for_einsum(spec):

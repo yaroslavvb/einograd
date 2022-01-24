@@ -770,7 +770,7 @@ def test_contractible_tensor2():
     y00 = torch.ones((d, d))
     z00 = 2 * torch.ones((d, d))
 
-    diag = TensorContraction.from_diag_matrix(3 * torch.ones((3,)), 'diag')
+    diag = TensorContraction.from_diag_matrix(3 * torch.ones((3,)), label='diag')
     assert diag.out_idx == diag.in_idx
     assert len(diag.out_idx) == 1
     dia0 = diag.value
