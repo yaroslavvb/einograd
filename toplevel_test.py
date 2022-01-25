@@ -109,43 +109,43 @@ def test_unit_test_a():
     check_equal(dh4(a4) * dh3(a3) * dh2(a2), [0, 500])
     check_equal(dh4(a4) * dh3(a3) * dh2(a2) * dh1(a1), [-1500, 2000])
 
-    u.reset_global_forward_flops()
-    assert u.get_global_forward_flops() == 0
+    GLOBALS.reset_global_forward_flops()
+    assert GLOBALS.get_global_forward_flops() == 0
 
     result = f(x)
     check_equal(result, 1250)
-    assert u.get_global_forward_flops() == 4
+    assert GLOBALS.get_global_forward_flops() == 4
     _unused_result = f(x)
-    assert u.get_global_forward_flops() == 4
+    assert GLOBALS.get_global_forward_flops() == 4
 
     # creating new composition does not reuse cache
     (W0, U0, x0, x, h1, h2, h3, h4) = _old_create_unit_test_a()
     (_unused_W, _unused_nonlin, _unused_U, _unused_loss) = (h1, h2, h3, h4)
     f = MemoizedFunctionComposition([h4, h3, h2, h1])
     _unused_result = f(x)
-    assert u.get_global_forward_flops() == 2 * 4
+    assert GLOBALS.get_global_forward_flops() == 2 * 4
 
     # partial composition test
-    u.reset_global_forward_flops()
-    print('flops ', u.get_global_forward_flops())
+    GLOBALS.reset_global_forward_flops()
+    print('flops ', GLOBALS.get_global_forward_flops())
     (W0, U0, x0, x, h1, h2, h3, h4) = _old_create_unit_test_a()
     (_unused_W, _unused_nonlin, _unused_U, _unused_loss) = (h1, h2, h3, h4)
     f = MemoizedFunctionComposition([h4, h3, h2, h1])
     # result = f(x)
     a2 = f[3:](x)  # input into h2
-    assert u.get_global_forward_flops() == 1
+    assert GLOBALS.get_global_forward_flops() == 1
     check_equal(a2, [-3, 5])
 
     a4 = f[1:](x)  #
-    assert u.get_global_forward_flops() == 3
+    assert GLOBALS.get_global_forward_flops() == 3
     check_equal(a4, [-30, 40])
 
     a5 = f[:](x)  #
-    assert u.get_global_forward_flops() == 4
+    assert GLOBALS.get_global_forward_flops() == 4
     check_equal(a5, 1250)
 
     a5 = f[0:](x)  #
-    assert u.get_global_forward_flops() == 4
+    assert GLOBALS.get_global_forward_flops() == 4
     check_equal(a5, 1250)
 
 
@@ -814,10 +814,72 @@ def test_derivatives():
     print(hessian(f_slow)(x) * x)
     check_equal(hessian(f_slow)(x) * x, [-1500, 2000])
 
+    check_equal(hessian(f_slow)(x).diag, [900, 1600])
+    check_equal(hessian(f_slow)(x).trace, 2500)
+
     check_equal(hessian(f_slow)(x), [[900., -1200.], [-1200., 1600.]])
     GLOBALS.CHANGE_DEFAULT_ORDER_OF_FINDING_IN_INDICES = False
 
 
+def test_hvp():
+    # test Hessian vector product against PyTorch implementation
+
+    (W0, U0, x0, x, h1, h2, h3, h4) = _create_unit_test_a()
+    (_unused_W, _unused_nonlin, _unused_U, _unused_loss) = (h1, h2, h3, h4)
+    (W, nonlin, U, loss) = (h1, h2, h3, h4)
+
+    # (h1, h2, h3, h4) = (W, nonlin, U, loss)
+    # f = FunctionComposition([h4, h3, h2, h1])
+
+    f = h4 @ h3 @ h2 @ h1
+
+    def hessian(f):
+        return D(D(f))
+
+    check_equal(hessian(f)(x) * x, [-1500, 2000])
+
+    # obtain it using PyTorch
+    from torch.autograd import Variable
+    from torch import autograd
+
+    class LeastSquaresLoss(nn.Module):
+        def __init__(self):
+            super(LeastSquaresLoss, self).__init__()
+            return
+
+        def forward(self, data, targets=None):
+            if targets is None:
+                targets = torch.zeros_like(data)
+
+            if len(data.shape) == 1:
+                err = data - targets
+            else:
+                err = data - targets.view(-1, data.shape[1])
+            return torch.sum(err * err) / 2
+
+    def hvp(loss, param, v):
+        grad_f, = autograd.grad(loss, param, create_graph=True)
+        z = grad_f.flatten() @ v
+        hvp, = autograd.grad(z, param, retain_graph=True)
+        # hvp, = autograd.grad(grad_f, param, v.view_as(grad_f))  # faster versio 531 -> 456
+        return hvp
+
+    b = 1
+
+    W = create_linear([[1, -2], [-3, 4]])
+    U = create_linear([[5, -6], [-7, 8]])
+    loss = LeastSquaresLoss()
+
+    print("\nrelu")
+    nonlin = nn.ReLU()
+    layers = [W, nonlin, U]
+
+    net = nn.Sequential(*layers)
+
+    x0 = to_pytorch([1, 2])
+    x_var = Variable(x0, requires_grad=True)
+    loss0 = loss(net(x_var))
+    check_equal(hvp(loss0, x_var, x0), hessian(f)(x) * x)
 
 def test_transpose():
     d = 10
@@ -962,8 +1024,9 @@ def test_diagonal_and_trace():
 
 
 def run_all():
-    test_derivatives()
-    sys.exit()
+    test_hvp()
+    # test_derivatives()
+    # sys.exit()
     test_names()
     test_unit_test_a()
     test_diagonal_and_trace()

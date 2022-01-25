@@ -37,8 +37,10 @@ class _GLOBALS_CLASS:
     function_count: Dict[str, int]
     function_dict: Dict[str, 'Function']
     tensor_count: int
+    global_forward_flops: int
 
     def __init__(self):
+        self.global_forward_flops = 0
         self.DEBUG = True
         self.device = 'cpu'
         self.PURE_TENSOR_NETWORKS = False
@@ -64,6 +66,15 @@ class _GLOBALS_CLASS:
 
     def reset_tensor_count(self):
         self.tensor_count = 0
+
+    def increment_global_forward_flops(self, incr):
+        self.global_forward_flops += incr
+
+    def reset_global_forward_flops(self):
+        self.global_forward_flops = 0
+
+    def get_global_forward_flops(self):
+        return self.global_forward_flops
 
 
 GLOBALS = _GLOBALS_CLASS()
@@ -2057,7 +2068,7 @@ class MemoizedFunctionComposition:
                 assert id(self._saved_outputs[last_cached]) == id(self.arg)
                 continue
 
-            u.increment_global_forward_flops(1)
+            GLOBALS.increment_global_forward_flops(1)
             result = self.children[i](self._saved_outputs[i + 1])
             self._saved_outputs[i] = result
             print('saving output of ', i)
