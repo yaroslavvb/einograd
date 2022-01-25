@@ -183,7 +183,7 @@ class TensorContraction(Tensor, TensorSharedImpl):
     def __legacy_init__(index_spec_list, tensors, label=None) -> 'TensorContraction':
         return TensorContraction(list((i, t) for (i, t) in zip(index_spec_list, tensors)), label=label)
 
-    def __init__(self, specs: Union[List[Tuple], Tuple[Tuple]], copy_tensors=None, label=None, transposed=False):
+    def __init__(self, specs: Union[List[Tuple], Tuple[Tuple]], copy_tensors=None, label=None):
         """
 
         Args:
@@ -198,7 +198,6 @@ class TensorContraction(Tensor, TensorSharedImpl):
         self._original_specs = tuple(specs)
         self._einsum_spec = None
         self.copy_tensors = copy_tensors
-        self.transposed = transposed
 
         children_specs: List[str] = []
         tensors: List[torch.Tensor] = []
@@ -613,7 +612,12 @@ class TensorContraction(Tensor, TensorSharedImpl):
         # implement for matrices only for now
         # assert len(self.children_specs) == 1
         # assert len(self.children_data[0]) == 2
-        return TensorContraction(self._original_specs, transposed=True)
+        new_specs = []
+        for (spec, data, name) in self._original_specs:
+            out_idx, in_idx = spec.split('|')
+            new_spec = in_idx+'|'+out_idx
+            new_specs.insert(0, (new_spec, data, name))
+        return TensorContraction(new_specs)
         # return TensorContraction([(self.children_specs[0], self.children_data[0].T, self.children_labels[0])])
 
     @property
@@ -624,6 +628,7 @@ class TensorContraction(Tensor, TensorSharedImpl):
         for bottom, top in zip(bottom_idx, top_idx):
             copy_tensors.append((bottom + top + '|'))
         return TensorContraction(self._original_specs, copy_tensors=copy_tensors)
+
 
     def __mul__(self, other: 'TensorContraction') -> 'TensorContraction':
         """Contraction operation"""
@@ -788,8 +793,7 @@ class TensorContraction(Tensor, TensorSharedImpl):
             if new_einsum_spec != self._einsum_spec:
                 print("Warning, diagonal hack")
                 return torch.einsum(new_einsum_spec, *self.children_data)
-        result = torch.einsum(self._einsum_spec, *self.children_data)
-        return result.T if self.transposed else result
+        return torch.einsum(self._einsum_spec, *self.children_data)
 
 
 class ZeroTensor(Tensor):
@@ -1522,7 +1526,7 @@ class D_LeastSquares(AtomicFunction, LinearizedFunction):
 
     def __matmul__(self, other):
         if isinstance(other, AtomicFunction):
-            return MemoizedFunctionComposition([self, other])
+            return FunctionComposition([self, other])
         else:
             return NotImplemented
 

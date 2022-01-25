@@ -266,12 +266,12 @@ def test_structured_tensor():
     assert (col * row).flops == d * d  # outer product
 
     check_equal(row * mat * mat * mat,
-                  x00 @ ma0 @ ma0 @ ma0)
+                x00 @ ma0 @ ma0 @ ma0)
     check_equal(mat * mat * mat * col,
-                  ma0 @ ma0 @ ma0 @ x00)
+                ma0 @ ma0 @ ma0 @ x00)
     colmat000 = torch.outer(x00, x00)
     check_equal(mat * mat * col * row * mat * mat,
-                  ma0 @ ma0 @ colmat000 @ ma0 @ ma0)
+                ma0 @ ma0 @ colmat000 @ ma0 @ ma0)
 
     diag = OldStructuredTensor.from_diag_matrix(3 * x00, 'diag')
     dia0 = diag.value
@@ -281,7 +281,7 @@ def test_structured_tensor():
 
     print()
     check_equal(row * mat * diag * mat,
-                  x00 @ ma0 @ dia0 @ ma0)
+                x00 @ ma0 @ dia0 @ ma0)
 
     # 3 x 2 grid example from "3 decompositions" section of
     # https://notability.com/n/wNU5UXNGENsmRBzMFDSJQ
@@ -304,6 +304,7 @@ def test_structured_tensor():
     # TODO(y): non-determinism (probably because using set)
     #    print(K.value)
     #    print(K.flops)
+
 
 def test_contractible_tensor2():
     d = 10
@@ -378,12 +379,12 @@ def test_contractible_tensor2():
     assert (col * row).flops == d * d  # outer product
 
     check_equal(row * mat * mat * mat,
-                  x00 @ ma0 @ ma0 @ ma0)
+                x00 @ ma0 @ ma0 @ ma0)
     check_equal(mat * mat * mat * col,
-                  ma0 @ ma0 @ ma0 @ x00)
+                ma0 @ ma0 @ ma0 @ x00)
     colmat000 = torch.outer(x00, x00)
     check_equal(mat * mat * col * row * mat * mat,
-                  ma0 @ ma0 @ colmat000 @ ma0 @ ma0)
+                ma0 @ ma0 @ colmat000 @ ma0 @ ma0)
 
     diag = TensorContraction.from_diag_matrix(3 * x00, 'diag')
     assert diag.out_idx == diag.in_idx
@@ -411,16 +412,16 @@ def test_contractible_tensor2():
     check_equal(row * diag, x00 @ dia0)
     check_equal(row * mat * diag, x00 @ ma0 @ dia0)
 
-    result = row*mat
+    result = row * mat
     print(result.ricci_str)
     assert result.ricci_str == '|a,a|b->|b'
-    assert (row*mat*diag).ricci_str == '|a,a|b,b|b->|b'
+    assert (row * mat * diag).ricci_str == '|a,a|b,b|b->|b'
     assert (row * mat * diag).ricci_str == '|a,a|b,b|b->|b'
     assert (row * mat * diag * mat).flops == 410  # structured reverse mode
 
     print()
     check_equal(row * mat * diag * mat,
-                  x00 @ ma0 @ dia0 @ ma0)
+                x00 @ ma0 @ dia0 @ ma0)
 
     # 2x3 grid example from "3 decompositions" section of
     # https://notability.com/n/wNU5UXNGENsmRBzMFDSJQ
@@ -445,7 +446,8 @@ def test_contractible_tensor2():
     assert K.flops == 104, "Change in flop requirement detected (don't actually know if 104 is correct)"
 
 
-@pytest.mark.skip(reason="this example doesn't work because our implementation currently contracts sequentially left to right only with automatic index renaming")
+@pytest.mark.skip(
+    reason="this example doesn't work because our implementation currently contracts sequentially left to right only with automatic index renaming")
 def test_2x3grid_mul():
     """If we want this kind of contraction to work, need to redo contraction logic to look at particular names of indices and match
     them up. Current logic just matches positions and discards original index names: all k output indices of the right are renamed to match first k input indices
@@ -465,8 +467,8 @@ def test_2x3grid_mul():
     E = TensorContraction.from_dense_tensor('km|n', rank3, 'E')
     F = TensorContraction.from_dense_vector(rank2, idx='no', label='F')
 
-    print('====='*20)
-    partial1 = A*B
+    print('=====' * 20)
+    partial1 = A * B
     print('-----', partial1.ricci_str)
     assert partial1.ricci_out == '|jlm'
     partial2 = partial1 * C
@@ -497,6 +499,7 @@ def test_2x3grid_mul():
     B = TensorContraction([('bc|defg', rank6, 'B')])
     AB = A * B
     print(AB.ricci_str)
+
 
 def test_partial_contraction_UnitTestC():
     d2 = 2
@@ -626,13 +629,14 @@ def test_present0():
     print(hvp.value)
 """
 
+
 def test_names():
     (W0, U0, x0, x, h1, h2, h3, h4) = _create_unit_test_a()
     (_unused_W, _unused_nonlin, _unused_U, _unused_loss) = (h1, h2, h3, h4)
     (W, nonlin, U, loss) = (h1, h2, h3, h4)
 
     assert W.human_readable == 'W'
-    assert (W@U).human_readable == '(W@U)'
+    assert (W @ U).human_readable == '(W@U)'
     GLOBALS.reset_function_count()
     new_layer0 = LinearLayer(W0)
     new_layer1 = LinearLayer(W0)
@@ -645,7 +649,7 @@ def test_names():
     assert dW.base_name == 'W'
     assert dW.human_readable == 'D_W'
     assert dW.human_readable == 'D_W'
-    assert (D@D)(W).human_readable == 'f_zero'
+    assert (D @ D)(W).human_readable == 'f_zero'
 
     loss1 = LeastSquares()
     dloss1 = D(loss1)
@@ -654,7 +658,7 @@ def test_names():
     assert dloss1.human_readable == 'D_LeastSquares'
     assert dloss2.human_readable == 'D_LeastSquares01'
 
-    ddloss1 = (D@D)(LeastSquares())
+    ddloss1 = (D @ D)(LeastSquares())
     assert ddloss1.human_readable == 'D_D_LeastSquares01'
     assert id(GLOBALS.function_dict['D_D_LeastSquares01']) == id(ddloss1)
 
@@ -713,7 +717,7 @@ def test_derivatives():
     print(D(loss @ W))
 
     # check end-to-end derivative
-    GLOBALS.CHANGE_DEFAULT_ORDER_OF_FINDING_IN_INDICES = True
+    GLOBALS.CHANGE_DEFAULT_ORDER_OF_FINDING_IN_INDICES = False
     GLOBALS.reset_function_count()
 
     f_slow = h1
@@ -730,11 +734,11 @@ def test_derivatives():
 
     # f_slow = h4
     # deriv = D(f_slow)
-    check_equal(D(h4)(a4),  [-30, 40])
+    check_equal(D(h4)(a4), [-30, 40])
 
     f_slow = h4
     deriv = D(f_slow)
-    check_equal(deriv(a4),  [-30, 40])
+    check_equal(deriv(a4), [-30, 40])
 
     (W, nonlin, U, loss) = (h1, h2, h3, h4)
 
@@ -742,8 +746,15 @@ def test_derivatives():
     lsqr = h4
 
     check_equal(D(W)(x), [[1., -2.], [-3., 4.]])
-    check_equal(D(relu) @ W * D(W)(x), [[0., 0.], [-3., 4.]])
-    ((D(h4) @ U @ relu @ W) * (D_U01 @ relu @ W) * (D_relu02 @ W) * D_W03)
+    check_equal((D(relu) @ W * D(W))(x), [[0., 0.], [-3., 4.]])
+    check_equal((((D(U) @ relu @ W) * (D(relu)) @ W) * D(W))(x), [[18., -24.], [-24., 32.]])
+    # ((D(h4) @ U @ relu @ W) * (D_U01 @ relu @ W) * (D_relu02 @ W) * D_W03)
+
+    check_equal(D(h4)(a4), [-30, 40])
+    check_equal(D(h3)(a3), [[5., -6.], [-7., 8.]])
+    check_equal(D(h4)(a4) * D(h3)(a3), [-430, 500])
+
+    check_equal(((((D(h4) @ U @ relu @ W) @ D(U) @ relu @ W) * (D(relu)) @ W) * D(W))(x), [-1500, 2000])
 
     f_slow = FunctionComposition([h4, h3, h2, h1])
     deriv = D(f_slow)
@@ -763,14 +774,70 @@ def test_derivatives():
     # hess
     # print(hessian(a1).value)
 
-
     # chain rule with memoization
     # GLOBALS.function_call_count = 0
-    #chain = MemoizedFunctionComposition([W, U])  # TODO(y): replace with W @ U
-    #expr1 = D(chain)
-    #expr2 = (D(chain[0]) @ chain[1:]) @ D(chain[1])
-    #check_equal(expr1(x), expr2(x))
-    #assert GLOBALS.function_call_count == 2  # value of U(x) is requested twice, but computed once
+    # chain = MemoizedFunctionComposition([W, U])  # TODO(y): replace with W @ U
+    # expr1 = D(chain)
+    # expr2 = (D(chain[0]) @ chain[1:]) @ D(chain[1])
+    # check_equal(expr1(x), expr2(x))
+    # assert GLOBALS.function_call_count == 2  # value of U(x) is requested twice, but computed once
+
+
+def test_transpose():
+    d = 10
+    x00 = torch.ones((d,))
+    ma0 = 2 * torch.ones(d, d)
+    col = TensorContraction.from_dense_vector(x00, 'col')
+    row = TensorContraction.from_dense_covector(x00, 'row')
+    mat = TensorContraction.from_dense_matrix(ma0, 'mat')
+
+    assert (row * mat * mat * mat).flops == 600  # reverse mode
+    assert (mat * mat * mat * col).flops == 600  # forward mode
+
+    #    assert (mat * mat * col * row * mat * mat).flops == 1000 # mixed mode
+    assert (col * row).flops == d * d  # outer product
+
+    check_equal(row * mat * mat * mat,
+                x00 @ ma0 @ ma0 @ ma0)
+    check_equal(mat * mat * mat * col,
+                ma0 @ ma0 @ ma0 @ x00)
+    colmat000 = torch.outer(x00, x00)
+    check_equal(mat * mat * col * row * mat * mat,
+                ma0 @ ma0 @ colmat000 @ ma0 @ ma0)
+
+    diag = TensorContraction.from_diag_matrix(3 * x00, 'diag')
+    assert diag.out_idx == diag.in_idx
+    assert len(diag.out_idx) == 1
+    dia0 = diag.value
+    print(dia0)
+
+    d2 = 2
+    rank2 = torch.ones((d2, d2))
+    rank3 = torch.ones((d2, d2, d2))
+    rank4 = torch.ones((d2, d2, d2, d2))
+
+    # UnitTestB:
+    A = torch.ones((2, 3, 2, 2))
+    B = torch.ones((2,))
+    C = torch.ones((2, 2, 2, 4))
+
+    D = TensorContraction([('ab|cd', A, 'A'), ('c|c', B, 'B'), ('cd|ef', C, 'C')])
+    assert D.ricci_str == 'ab|cd,c|c,cd|ef->ab|ef'
+
+    a = TensorContraction.__legacy_init__(['a|bc', 'bc|de'], [rank3, rank4], label='a')
+    b = TensorContraction.__legacy_init__(['ab|c', 'c|d'], [rank3, rank2], label='b')
+    c = a * b
+
+    check_equal(row * diag, x00 @ dia0)
+    check_equal(row * mat * diag, x00 @ ma0 @ dia0)
+
+    result = row * mat
+    print(result.ricci_str)
+    assert result.ricci_str == '|a,a|b->|b'
+    assert (row * mat * diag).ricci_str == '|a,a|b,b|b->|b'
+    assert (row * mat * diag).ricci_str == '|a,a|b,b|b->|b'
+
+    assert (row * mat * diag).T.ricci_str == 'b|b,b|a,a|->b|'  # have b|b,a|b,|a->|b
 
 @pytest.mark.skip(reason="doesn't work yet")
 def test_present():
@@ -811,8 +878,8 @@ def test_diagonal_problem():
     diag = TensorContraction.from_diag_matrix(diag0, label='diag')
     mat = TensorContraction.from_dense_matrix(ma0, label='mat')
 
-    assert (row*diag).ricci_str == '|a,a|a->|a'
-    check_equal(row*diag, row0*diag0)
+    assert (row * diag).ricci_str == '|a,a|a->|a'
+    check_equal(row * diag, row0 * diag0)
 
     assert (diag * col).ricci_str == 'a|a,a|->a|'
     check_equal(diag * col, diag0 * col0)
@@ -828,7 +895,7 @@ def test_diagonal_problem():
     # with multiple diagonal matrices, only support 1
     assert (diag * diag).ricci_str == 'a|a,a|a->a|a'
     with pytest.raises(Exception):
-        print((diag*diag).value)
+        print((diag * diag).value)
         check_equal(diag * diag, torch.diag(diag0) @ torch.diag(diag0))
 
     # this case could be enabled in the future, but to reduce scope currently
@@ -838,6 +905,7 @@ def test_diagonal_problem():
 
     check_equal(mat * diag, ma0 @ torch.diag(diag0))
     check_equal(diag * mat, torch.diag(diag0) @ ma0)
+
 
 def test_diagonal_and_trace():
     A = TensorContraction([('|ab', from_numpy([[1, 2], [3, 4]]), 'A')])
@@ -853,6 +921,9 @@ def test_diagonal_and_trace():
 
 
 def run_all():
+    test_contractible_tensor2()
+    test_transpose()
+    sys.exit()
     test_derivatives()
     sys.exit()
     test_names()
