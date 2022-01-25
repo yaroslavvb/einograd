@@ -955,7 +955,6 @@ class FunctionSharedImpl:
     #     else:
     #         return "D" * (getattr(self, "order") - 1) + 'D_' + base_name
 
-
     def __add__(self, other: 'Function'):
         assert isinstance(other, Function)
         if isinstance(other, ZeroFunction):
@@ -1503,11 +1502,11 @@ class LeastSquares(AtomicFunction):
     def out_dims(self):
         return -45
 
-    def __matmul__(self, other):
-        if isinstance(other, AtomicFunction):
-            return FunctionComposition([self, other])
-        else:
-            return NotImplemented
+    # def __matmul__(self, other):
+    #     if isinstance(other, AtomicFunction):
+    #         return FunctionComposition([self, other])
+    #     else:
+    #         return NotImplemented
 
 
 class D_LeastSquares(AtomicFunction, LinearizedFunction):
@@ -1531,12 +1530,6 @@ class D_LeastSquares(AtomicFunction, LinearizedFunction):
 
     def d(self, order=1):
         return D_LeastSquares(order=self.order + order)
-
-    def __matmul__(self, other):
-        if isinstance(other, AtomicFunction):
-            return FunctionComposition([self, other])
-        else:
-            return NotImplemented
 
     @property
     def in_dims(self):

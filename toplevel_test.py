@@ -780,7 +780,15 @@ def test_derivatives():
 
     def hessian(f):
         return D(D(f))
-    check_equal(hessian(f_slow)(x), [[900.,-1200.],[-1200.,1600.]])
+    g = h3 @ h2 @ h1
+    dg = D(g)
+    check_equal(dg(x), [[18., -24.], [-24., 32.]])
+    d2f = hessian(h4)
+    check_equal(d2f(x), [[1, 0], [0, 1]])
+    check_equal((d2f(x)*dg(x))*dg(x), [[900., -1200.], [-1200., 1600.]])
+
+    gauss_newton = (d2f * dg) * dg
+    check_equal(gauss_newton(x), [[900., -1200.], [-1200., 1600.]])
 
 
 def test_transpose():
