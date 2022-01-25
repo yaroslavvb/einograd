@@ -1102,8 +1102,120 @@ def make_function_contraction(children) -> Function:
         return FunctionContraction(children)
 
 
+class MemoizedFunctionComposition:
+    """Represents a composition of functions with memoization
+    Unbound call, ie f@g@h, can be used as intermediate result for constructing a composition
+    Bound call, ie (f@g@h)(x), at this point it is frozen and can't be modified.
+    """
+
+    children: List[Any]  # List[Function] fix: forward references
+    # parent               # FunctionComposition type, multiple Compositions point here. fix: forward reference
+    arg: Any
+
+    def __init__(self, children, parent=None):
+        self.arg = None
+        self.parent = parent
+        self.children = children
+        self._saved_outputs = [None] * (len(children) + 1)
+
+        # if creating a sub-composition, extra sanity check that the nodes we are using
+        # are already pointing to the parent composition
+        for child in children:
+            if parent:
+                assert child.parent == parent
+            else:
+                if hasattr(child, 'parent') and child.parent is not None:
+                    assert False, f"Warning, Node {child} already has parent {child.parent}"
+                child.parent = self
+
+    def __matmul__(self, other):
+        assert self.arg is None, "Can't combine compositions with bound parameters"
+        if isinstance(other, Function):
+            return MemoizedFunctionComposition(self.children + [other])
+        else:
+            return NotImplemented
+
+    # only allow simple slicing
+    def __getitem__(self, s):
+        if isinstance(s, slice):
+            if isinstance(s.step, int):
+                assert s.step == 1
+            error_msg = "this case hasn't been tested, for now only single level of parent  redirection is allowed"
+            assert self.parent is None, error_msg
+            backlink = self if self.parent is None else self.parent
+            assert s.stop is None
+            assert len(self.children[s.start:]) > 0, f"only have {len(self.children)} members of composition, " \
+                                                     f"attempted to start at {s.start} "
+            return MemoizedFunctionComposition(self.children[s.start:], backlink)
+        else:
+            assert False, "use [:] slicing as [i] is ambiguous"
+            # assert isinstance(s, int)
+            # return self.children[s]
+
+    def _bind(self, arg):
+        print('binding ', arg)
+        self.arg = arg
+        self._saved_outputs[len(self.children)] = arg
+
+    def memoized_compute(self, node) -> Optional[torch.Tensor]:
+        """Composition([h3,h2,h1]): memoized_compute(h2) computes everything up to h2"""
+        assert self.arg is not None, "arg not bound, call _bind first"
+        assert id(self._saved_outputs[len(self.children)]) == id(self.arg)
+        assert node in self.children, "Trying to compute {node} but it's not in Composition"
+        idx = self.children.index(node)
+
+        # last_saved gives position of function whose output has been cached
+        # we treat "x" as a dummy function which returns itself, so
+        # last_cached == len(children) means just the output of "x" was cached
+        for last_cached in range(len(self.children)):
+            if self._saved_outputs[last_cached] is not None:
+                break
+        else:
+            last_cached = len(self.children)
+
+        print(f'found saved output of {last_cached} node')
+        for i in range(last_cached - 1, idx - 1, -1):
+            if i == len(self.children):
+                assert id(self._saved_outputs[last_cached]) == id(self.arg)
+                continue
+
+            GLOBALS.increment_global_forward_flops(1)
+            result = self.children[i](self._saved_outputs[i + 1])
+            self._saved_outputs[i] = result
+            print('saving output of ', i)
+
+        return self._saved_outputs[idx]
+
+    def __call__(self, arg: Vector) -> Vector:
+        assert isinstance(arg, Vector), "must call function with Vector type"
+        if self.parent is not None:
+            assert isinstance(self.parent, MemoizedFunctionComposition)
+            if self.parent.arg is not None:
+                assert id(arg) == id(self.parent.arg)
+            else:
+                self.parent._bind(arg)
+            return self.parent.memoized_compute(self.children[0])
+
+        if self.arg is None:
+            self._bind(arg)
+        else:
+            assert id(self.arg) == id(arg), "Reusing same composition for multiple args"
+
+        return self.memoized_compute(self.children[0])
+
+    @property
+    def value(self):
+        if self.parent:
+            result = self.__call__(self.parent.arg)
+        else:
+            assert self.arg, "Trying to get value of function composition, but arg has not been supplied yet"
+            result = self.__call__(self.arg)
+        if hasattr(result, 'value'):
+            return result.value
+
+
 # TODO(y): rename to FunctionNesting? compositvefunction/functioncomposition clash
-class FunctionComposition(CompositeFunction):
+class UnmemoizedFunctionComposition(CompositeFunction):
     def __init__(self, children: List['Function']):
         super().__init__(name='@')
         # self.name = '@'
@@ -1115,7 +1227,8 @@ class FunctionComposition(CompositeFunction):
         for c in reversed(self.children[:-1]):
             result = c(result)
         return result
-
+FunctionComposition = UnmemoizedFunctionComposition
+# FunctionComposition = MemoizedFunctionComposition
 
 def make_function_composition(children):
     if len(children) == 0:
@@ -1947,118 +2060,6 @@ class OldDLinearLayer(AtomicFunction, LinearizedFunction):
         else:
             return Zero
 
-
-#    TODO(y): maybe also implement Function interface?
-class MemoizedFunctionComposition:
-    """Represents a composition of functions with memoization
-    Unbound call, ie f@g@h, can be used as intermediate result for constructing a composition
-    Bound call, ie (f@g@h)(x), at this point it is frozen and can't be modified.
-    """
-
-    children: List[Any]  # List[Function] fix: forward references
-    # parent               # FunctionComposition type, multiple Compositions point here. fix: forward reference
-    arg: Any
-
-    def __init__(self, children, parent=None):
-        self.arg = None
-        self.parent = parent
-        self.children = children
-        self._saved_outputs = [None] * (len(children) + 1)
-
-        # if creating a sub-composition, extra sanity check that the nodes we are using
-        # are already pointing to the parent composition
-        for child in children:
-            if parent:
-                assert child.parent == parent
-            else:
-                if hasattr(child, 'parent') and child.parent is not None:
-                    assert False, f"Warning, Node {child} already has parent {child.parent}"
-                child.parent = self
-
-    def __matmul__(self, other):
-        assert self.arg is None, "Can't combine compositions with bound parameters"
-        if isinstance(other, Function):
-            return MemoizedFunctionComposition(self.children + [other])
-        else:
-            return NotImplemented
-
-    # only allow simple slicing
-    def __getitem__(self, s):
-        if isinstance(s, slice):
-            if isinstance(s.step, int):
-                assert s.step == 1
-            error_msg = "this case hasn't been tested, for now only single level of parent  redirection is allowed"
-            assert self.parent is None, error_msg
-            backlink = self if self.parent is None else self.parent
-            assert s.stop is None
-            assert len(self.children[s.start:]) > 0, f"only have {len(self.children)} members of composition, " \
-                                                     f"attempted to start at {s.start} "
-            return MemoizedFunctionComposition(self.children[s.start:], backlink)
-        else:
-            assert False, "use [:] slicing as [i] is ambiguous"
-            # assert isinstance(s, int)
-            # return self.children[s]
-
-    def _bind(self, arg):
-        print('binding ', arg)
-        self.arg = arg
-        self._saved_outputs[len(self.children)] = arg
-
-    def memoized_compute(self, node) -> Optional[torch.Tensor]:
-        """Composition([h3,h2,h1]): memoized_compute(h2) computes everything up to h2"""
-        assert self.arg is not None, "arg not bound, call _bind first"
-        assert id(self._saved_outputs[len(self.children)]) == id(self.arg)
-        assert node in self.children, "Trying to compute {node} but it's not in Composition"
-        idx = self.children.index(node)
-
-        # last_saved gives position of function whose output has been cached
-        # we treat "x" as a dummy function which returns itself, so
-        # last_cached == len(children) means just the output of "x" was cached
-        for last_cached in range(len(self.children)):
-            if self._saved_outputs[last_cached] is not None:
-                break
-        else:
-            last_cached = len(self.children)
-
-        print(f'found saved output of {last_cached} node')
-        for i in range(last_cached - 1, idx - 1, -1):
-            if i == len(self.children):
-                assert id(self._saved_outputs[last_cached]) == id(self.arg)
-                continue
-
-            GLOBALS.increment_global_forward_flops(1)
-            result = self.children[i](self._saved_outputs[i + 1])
-            self._saved_outputs[i] = result
-            print('saving output of ', i)
-
-        return self._saved_outputs[idx]
-
-    def __call__(self, arg: Vector) -> Vector:
-        assert isinstance(arg, Vector), "must call function with Vector type"
-        if self.parent is not None:
-            assert isinstance(self.parent, MemoizedFunctionComposition)
-            if self.parent.arg is not None:
-                assert id(arg) == id(self.parent.arg)
-            else:
-                self.parent._bind(arg)
-            return self.parent.memoized_compute(self.children[0])
-
-        if self.arg is None:
-            self._bind(arg)
-        else:
-            assert id(self.arg) == id(arg), "Reusing same composition for multiple args"
-
-        return self.memoized_compute(self.children[0])
-
-    @property
-    def value(self):
-        if self.parent:
-            result = self.__call__(self.parent.arg)
-        else:
-            assert self.arg, "Trying to get value of function composition, but arg has not been supplied yet"
-            result = self.__call__(self.arg)
-        if hasattr(result, 'value'):
-            return result.value
 
 
 class OldStructuredTensor(Tensor):
