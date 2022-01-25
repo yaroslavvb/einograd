@@ -663,7 +663,7 @@ def test_names():
     assert id(GLOBALS.function_dict['D_D_LeastSquares']) == id(ddloss1)
 
 
-@pytest.mark.skip(reason="doesn't work yet")
+# @pytest.mark.skip(reason="doesn't work yet")
 def test_derivatives():
     (W0, U0, x0, x, h1, h2, h3, h4) = _create_unit_test_a()
     (_unused_W, _unused_nonlin, _unused_U, _unused_loss) = (h1, h2, h3, h4)
@@ -812,6 +812,8 @@ def test_derivatives():
     print(myhess.human_readable)
 
     check_equal(hessian(f_slow)(x), [[900., -1200.], [-1200., 1600.]])
+    GLOBALS.CHANGE_DEFAULT_ORDER_OF_FINDING_IN_INDICES = False
+
 
 
 def test_transpose():
