@@ -1197,10 +1197,15 @@ class D_(Operator):
 
         # chain rule
         elif isinstance(other, FunctionComposition):
-            mul_children = []
+            mul_children1 = []  # old way
             for (i, c1) in enumerate(other.children):
-                mul_children.append(make_function_composition([D(c1)] + other.children[i + 1:]))
-            return make_function_contraction(mul_children)
+                mul_children1.append(make_function_composition([D(c1)] + other.children[i + 1:]))
+            #mul_children2 = []  # new way
+            #for i in range(len(other.children)-1, -1, -1):
+            #    c1 = other.children[i]
+            #    mul_children2.append(make_function_composition([D(c1)] + other.children[i + 1:]))
+            #mul_children2 = list(reversed(mul_children2))
+            return make_function_contraction(mul_children1)
 
         else:
             assert False, f"Unknown node type: {other}"
