@@ -811,6 +811,9 @@ def test_derivatives():
     myhess = hessian(f_slow)
     print(myhess.human_readable)
 
+    print(hessian(f_slow)(x) * x)
+    check_equal(hessian(f_slow)(x) * x, [-1500, 2000])
+
     check_equal(hessian(f_slow)(x), [[900., -1200.], [-1200., 1600.]])
     GLOBALS.CHANGE_DEFAULT_ORDER_OF_FINDING_IN_INDICES = False
 
