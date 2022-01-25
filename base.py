@@ -1628,48 +1628,6 @@ class OldIdentity(AtomicFunction):
             return NotImplemented
 
 
-# noinspection PyMissingConstructor
-class OldDIdentity(AtomicFunction):
-    """Derivatives of identity"""
-
-    def __init__(self, dim: int, order: int = 1):
-        self._in_dims = (dim,)
-        self._out_dims = (dim,)
-        self.order = order
-
-    @property
-    def out_dims(self):
-        return self._out_dims
-
-    @property
-    def in_dims(self):
-        return self._in_dims
-
-    @property
-    def d1(self):
-        return self.d(1)
-
-    def d(self, order=1):
-        if order == 1:
-            return IdentityLinearMap()
-        elif order >= 2:
-            return Zero
-
-    def __call__(self, x: DenseVector):
-        assert self.order <= 2, "third and higher order derivatives not implemented"
-        n = self._in_dims[0]
-
-        if self.order == 1:
-            return DenseLinear(torch.eye(n))
-        elif self.order == 2:
-            return 0
-
-    def __matmul__(self, other):
-        if isinstance(other, AtomicFunction):
-            return MemoizedFunctionComposition([self, other])
-        else:
-            return NotImplemented
-
 
 import torch.nn.functional as F
 
@@ -1722,7 +1680,7 @@ class OldDRelu(AtomicFunction, LinearizedFunction):
         return self._in_dims
 
     def d(self, order=1):
-        return Zero
+        return ZeroFunction()
 
     def __call__(self, x):
         if self.order == 1:
