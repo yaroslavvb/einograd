@@ -40,6 +40,7 @@ class _GLOBALS_CLASS:
     global_forward_flops: int
 
     def __init__(self):
+        self.switch_composition_order = False
         self.global_forward_flops = 0
         self.DEBUG = True
         self.device = 'cpu'
@@ -989,13 +990,21 @@ class FunctionSharedImpl:
 
     # composition
     def __matmul__(self, other: 'Function'):
-        assert isinstance(other, Function)
+        if GLOBALS.switch_composition_order:
+            return other.__rmatmul__(self)
+        else:
+            # don't merge Function Composition chains, this complicates caching.
+            if isinstance(self, FunctionComposition):
+                return FunctionComposition(self.children + [other])
+            else:
+                return FunctionComposition([self, other])
 
-        # don't merge Function Composition chains, this complicates caching.
-        #if isinstance(self, FunctionComposition):
-        #    return FunctionComposition(self.children + [other])
-        #else:
-        return FunctionComposition([self, other])
+    def __rmatmul__(self, other: 'Function'):
+        print("Calling R-matmul")
+        if isinstance(self, FunctionComposition):
+            return FunctionComposition([other] + self.children)
+        else:
+            return FunctionComposition([other, self])
 
     @property
     def human_readable(self):

@@ -942,31 +942,6 @@ def test_transpose():
     At0 = A.T.value
     check_equal(A0.T, At0)
 
-@pytest.mark.skip(reason="doesn't work yet")
-def test_present():
-    (W0, U0, x0, x, h1, h2, h3, h4) = _old_create_unit_test_a()
-    (_unused_W, _unused_nonlin, _unused_U, _unused_loss) = (h1, h2, h3, h4)
-
-    # (h1, h2, h3, h4) = (W, nonlin, U, loss)
-    f = MemoizedFunctionComposition([h4, h3, h2, h1])
-    hess = (D @ D)(f)
-    check_equal(hess(x0), [[900., -1200.], [-1200., 1600.]])
-    hvp = hess(x0) * x0
-    check_equal(hvp, [-1500., 2000.])
-    print(hvp.backward_flops)
-    print(hvp)
-
-    (W0, U0, x0, x, h1, h2, h3, h4) = _create_unit_test_a_sigmoid()
-    (_unused_W, _unused_nonlin, _unused_U, _unused_loss) = (h1, h2, h3, h4)
-    f = MemoizedFunctionComposition([h4, h3, h2, h1])
-    hess = (D @ D)(f)
-    check_equal(hess(x0), [[-8.62673, 13.5831], [13.5831, -22.3067]])
-    hvp = hess(x0) * x0
-    check_equal(hvp, [18.5394, -31.0303])
-    print(hvp.backward_flops)
-    print(hvp)
-
-
 # Tests from "Diagonal logic"
 def test_diagonal_problem():
     d = 2
@@ -1023,7 +998,19 @@ def test_diagonal_and_trace():
         print(A.trace)
 
 
+def test_nesting():
+    (W0, U0, x0, x, h1, h2, h3, h4) = _create_unit_test_a()
+    (_unused_W, _unused_nonlin, _unused_U, _unused_loss) = (h1, h2, h3, h4)
+    (W, nonlin, U, loss) = (h1, h2, h3, h4)
+
+    f = W @ W @ W
+    print(f.human_readable)
+
+
 def run_all():
+    test_transpose()
+    sys.exit()
+    test_nesting()
     test_hvp()
     test_names()
     # test_derivatives()
@@ -1037,7 +1024,6 @@ def run_all():
     test_dense()
     test_sigmoid()
     test_contractible_tensor2()
-    test_transpose()
     test_relu()
     test_least_squares()
     test_contraction()
