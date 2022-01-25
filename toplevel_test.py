@@ -15,8 +15,8 @@ def test_dense():
     check_equal(W(x).value, W0 @ x0)
 
     dW = D(W)  # derivative of linear layer
-    print(dW(zero) * x)  # get
-    check_equal(dW(zero) * x, W0 @ x0)
+    print(dW(ZeroTensor()) * x)  # get
+    check_equal(dW(ZeroTensor()) * x, W0 @ x0)
 
 
 def test_contract():
@@ -766,6 +766,11 @@ def test_derivatives():
     deriv = D(f_slow)
     check_equal(deriv(x), [-1500, 2000])
 
+    GLOBALS.CHANGE_DEFAULT_ORDER_OF_FINDING_IN_INDICES = True
+    W0 = torch.tensor([[1., -2.], [-3., 4.]])
+    ii = torch.eye(2)
+    check_equal(torch.einsum('ab,ac,bd->cd', ii, W0, W0), W0.T @ W0)
+    check_equal([[10., -14.], [-14., 20.]], W0.T @ W0)
     # second derivatives
     GLOBALS.reset_function_count()
     f = lsqr @ W
@@ -773,7 +778,9 @@ def test_derivatives():
     hess = D(deriv)
     check_equal(hess(x), [[10., -14.], [-14., 20.]])
 
-    check_equal((D@D)(f_slow)(x), [[900.,-1200.],[-1200.,1600.]])
+    def hessian(f):
+        return D(D(f))
+    check_equal(hessian(f_slow)(x), [[900.,-1200.],[-1200.,1600.]])
 
 
 def test_transpose():

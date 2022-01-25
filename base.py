@@ -685,28 +685,31 @@ class TensorContraction(Tensor, TensorSharedImpl):
         if not GLOBALS.CHANGE_DEFAULT_ORDER_OF_FINDING_IN_INDICES:
             left_contracted = left.in_idx[:len(right.out_idx)]  # contract these in-indices of LEFT with all out-indices of RIGHT
         else:
-            # find in_idx corresponding to highest-rank tensor
+            # find in_idx corresponding to the tensor with the most in-indices
 
-            in_idx_ranks = {}
-            in_idx_rank_tensors = {}
-            for idx in left.in_idx:
-                print('doing index ', idx)
-                if len(left.idx_to_in_tensors[idx]) == 1:
-                    _tensor_idx = left.idx_to_in_tensors[idx][0]
-                    _tensor = self.children_data[_tensor_idx]
-                    in_idx_ranks.setdefault(len(_tensor.shape), []).append(idx)
-                    # ensure we don't try to add twice
-                    if len(_tensor.shape) in in_idx_rank_tensors:
-                        assert in_idx_rank_tensors[len(_tensor.shape)] == _tensor_idx
-                    else:
-                        in_idx_rank_tensors[len(_tensor.shape)] = _tensor_idx
-            if not in_idx_ranks.keys():
-                # fall back on previous method, which works for diagonal tensors
-                left_contracted = left.in_idx[:len(right.out_idx)]
-            else:
-                top_rank = max(in_idx_ranks.keys())
-                assert len(in_idx_ranks[top_rank]) >= len(right.out_idx), "Couldn't find tensor to contract with right"
-                left_contracted = in_idx_ranks[top_rank][:len(right.out_idx)]
+            tensors_with_in_indicies = {}
+            largest_in_tensor_id = -1
+            largest_in_tensor_in_count = -1
+            for tensor_id, tensor_spec in enumerate(self.children_specs):
+                out_idx, in_idx = tensor_spec.split('|')
+                if set(in_idx).intersection(left.in_idx):
+                    tensors_with_in_indicies[tensor_id] = len(in_idx)
+                    if len(in_idx) > largest_in_tensor_in_count:
+                        largest_in_tensor_id = tensor_id
+                        largest_in_tensor_in_count = len(in_idx)
+            assert largest_in_tensor_id >= 0
+
+            tensor_spec = self.children_specs[largest_in_tensor_id]
+            out_idx, in_idx = tensor_spec.split('|')
+            assert len(set(in_idx).intersection(left.in_idx)) >= len(right.out_idx), f"not enough in indices to contract on tensor {largest_in_tensor_id}"
+            left_contracted = list(set(in_idx).intersection(left.in_idx))[:len(right.out_idx)]
+            # if not in_idx_ranks.keys():
+            #     # fall back on previous method, which works for diagonal tensors
+            #     left_contracted = left.in_idx[:len(right.out_idx)]
+            # else:
+            #     top_rank = max(in_idx_ranks.keys())
+            #     assert len(in_idx_ranks[top_rank]) >= len(right.out_idx), "Couldn't find tensor to contract with right"
+            #     left_contracted = in_idx_ranks[top_rank][:len(right.out_idx)]
 
         print(f'matching left {left_contracted} to right {right.out_idx}')
         for left_idx, right_idx in zip(left_contracted, right.out_idx):
@@ -820,8 +823,8 @@ class ZeroTensor(Tensor):
         return ()
 
 
-zero = ZeroTensor()
-Zero = ZeroTensor()  # TODO(y) remove one of the zeros
+# zero = ZeroTensor()
+# Zero = ZeroTensor()  # TODO(y) remove one of the zeros
 
 
 class Scalar(Tensor, ABC):
@@ -1761,16 +1764,8 @@ class D_Relu(AtomicFunction, LinearizedFunction):
         # super.__init__(name=name, base_name=base_name, order=order)
         super().__init__(name=name, base_name=base_name, order=order)
 
-    @property
-    def out_dims(self):
-        return -42
-
-    @property
-    def in_dims(self):
-        return -42
-
     def d(self, order=1):
-        return Zero
+        return ZeroFunction
 
     def __call__(self, x: TensorContraction) -> TensorContraction:
         if self.order == 1:
