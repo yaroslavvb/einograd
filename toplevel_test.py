@@ -719,6 +719,175 @@ def test_derivatives():
     print(D(loss @ W))
 
     # check end-to-end derivative
+    # GLOBALS.CHANGE_DEFAULT_ORDER_OF_FINDING_IN_INDICES = False
+    GLOBALS.reset_function_count()
+
+    f_slow = h1
+    deriv = D(f_slow)
+    check_equal(deriv(x), [[1., -2.], [-3., 4.]])
+
+    f_slow = FunctionComposition([h2, h1])
+    deriv = D(f_slow)
+    check_equal(deriv(x), [[0., 0.], [-3., 4.]])
+
+    f_slow = FunctionComposition([h3, h2, h1])
+    deriv = D(f_slow)
+    check_equal(deriv(x), [[18., -24.], [-24., 32.]])
+
+    # f_slow = h4
+    # deriv = D(f_slow)
+    check_equal(D(h4)(a4), [-30, 40])
+
+    f_slow = h4
+    deriv = D(f_slow)
+    check_equal(deriv(a4), [-30, 40])
+
+    (W, nonlin, U, loss) = (h1, h2, h3, h4)
+
+    relu = h2
+    lsqr = h4
+
+
+    check_equal(D(W)(x), [[1., -2.], [-3., 4.]])
+    check_equal((D(relu) @ W * D(W))(x), [[0., 0.], [-3., 4.]])
+    check_equal((((D(U) @ relu @ W) * (D(relu)) @ W) * D(W))(x), [[18., -24.], [-24., 32.]])
+    # ((D(h4) @ U @ relu @ W) * (D_U01 @ relu @ W) * (D_relu02 @ W) * D_W03)
+
+    check_equal(D(h4)(a4), [-30, 40])
+    check_equal(D(h3)(a3), [[5., -6.], [-7., 8.]])
+    check_equal(D(h4)(a4) * D(h3)(a3), [-430, 500])
+
+    dH4 = D(h4) @ U @ relu @ W
+    dH3 = D(U) @ relu @ W
+    dH2 = D(relu) @ W
+    dH1 = D(W)
+    check_equal((dH4 * dH3 * dH2 * dH1)(x), [-1500, 2000])
+
+    f_slow = FunctionComposition([h4, h3, h2, h1])
+    deriv = D(f_slow)
+    check_equal(deriv(x), [-1500, 2000])
+
+    GLOBALS.CHANGE_DEFAULT_ORDER_OF_FINDING_IN_INDICES = True
+    W0 = torch.tensor([[1., -2.], [-3., 4.]])
+    ii = torch.eye(2)
+    check_equal(torch.einsum('ab,ac,bd->cd', ii, W0, W0), W0.T @ W0)
+    check_equal([[10., -14.], [-14., 20.]], W0.T @ W0)
+    # second derivatives
+    GLOBALS.reset_function_count()
+    f = lsqr @ W
+    deriv = D(f)
+    hess = D(deriv)
+    check_equal(hess(x), [[10., -14.], [-14., 20.]])
+
+    #GLOBALS.CHANGE_DEFAULT_ORDER_OF_FINDING_IN_INDICES = False
+
+    def hessian(f):
+        return D(D(f))
+    g = h3 @ h2 @ h1
+    dg = D(g)
+    check_equal(dg(x), [[18., -24.], [-24., 32.]])
+    d2f = hessian(h4)
+    check_equal(d2f(x), [[1, 0], [0, 1]])
+    check_equal((d2f(x)*dg(x))*dg(x), [[900., -1200.], [-1200., 1600.]])
+
+    gauss_newton = ((d2f @ g) * dg) * dg
+    check_equal(gauss_newton(x), [[900., -1200.], [-1200., 1600.]])
+
+
+    f_slow = loss @ relu
+    f_hess = hessian(f_slow)
+    check_equal(f_hess(x), [[1, 0], [0, 1]])
+
+    f_slow = loss @ U @ relu
+    f_hess = hessian(f_slow)
+    check_equal(f_hess(x), [[74., -86.], [-86., 100.]])
+
+    GLOBALS.reset_function_count()
+    g = h3 @ h2 @ h1
+    dg = D(g)
+    d2f = hessian(h4)
+    gauss_newton = ((d2f @ g) * dg) * dg
+    check_equal(gauss_newton(x), [[900., -1200.], [-1200., 1600.]])
+
+
+    print(gauss_newton.human_readable)
+    GLOBALS.reset_function_count()
+
+    # this calculation only works with left-to-right composition order
+    # GLOBALS.CHANGE_DEFAULT_ORDER_OF_FINDING_IN_INDICES = False
+    # GLOBALS.switch_composition_order = False
+
+    f_slow = h4 @ (h3 @ h2 @ h1)
+    myhess = hessian(f_slow)
+    print(myhess.human_readable)
+
+    print(hessian(f_slow)(x) * x)
+    check_equal(hessian(f_slow)(x) * x, [-1500, 2000])
+
+    check_equal(hessian(f_slow)(x).diag, [900, 1600])
+    check_equal(hessian(f_slow)(x).trace, 2500)
+
+    check_equal(hessian(f_slow)(x), [[900., -1200.], [-1200., 1600.]])
+    # GLOBALS.CHANGE_DEFAULT_ORDER_OF_FINDING_IN_INDICES = False
+    # GLOBALS.switch_composition_order = True
+
+
+@pytest.mark.skip(reason="doesn't work yet")
+def test_derivatives_old():
+    (W0, U0, x0, x, h1, h2, h3, h4) = _create_unit_test_a()
+    (_unused_W, _unused_nonlin, _unused_U, _unused_loss) = (h1, h2, h3, h4)
+    (W, nonlin, U, loss) = (h1, h2, h3, h4)
+
+    # (h1, h2, h3, h4) = (W, nonlin, U, loss)
+    f = MemoizedFunctionComposition([h4, h3, h2, h1])
+    f_slow = FunctionComposition([h4, h3, h2, h1])
+    assert type(h1) == LinearLayer
+    assert type(h4) == LeastSquares
+
+    a1 = x
+    a2 = h1(a1)  # a_i gives input into i'th layer
+    a3 = h2(a2)
+    a4 = h3(a3)
+    a5 = h4(a4)
+    check_equal(a1, [1, 2])
+    check_equal(a2, [-3, 5])
+    check_equal(a3, [0, 5])
+    check_equal(a4, [-30, 40])
+    check_equal(a5, 1250)
+
+    # check per-layer Jacobians
+    dh1, dh2, dh3, dh4 = D(h1), D(h2), D(h3), D(h4)
+
+    check_equal(dh1(a1), W0)
+    check_equal(dh2(a2), [[0, 0], [0, 1]])
+    check_equal(dh3(a3), [[5, -6], [-7, 8]])
+
+    # simple hessian
+    (W0, U0, x0, x, h1, h2, h3, h4) = _create_unit_test_a()
+    (_unused_W, _unused_nonlin, _unused_U, _unused_loss) = (h1, h2, h3, h4)
+    (W, nonlin, U, loss) = (h1, h2, h3, h4)
+
+    D_W = D(W)
+    assert D_W.human_readable == 'D_W'
+    D_D_W = D(D_W)
+    assert D_D_W.human_readable == 'f_zero'
+
+    def hess(f):
+        return D(D(f))
+
+    print(hess(W)(x))
+    check_equal(hess(W)(x), 0)
+
+    check_equal(hess(loss)(x), torch.eye(2))
+    first_deriv = D(loss @ W)
+    second_deriv = D(first_deriv)
+    print(second_deriv)
+    print(hess(U))
+
+    print(hess(loss @ W))
+    print(D(loss @ W))
+
+    # check end-to-end derivative
     GLOBALS.CHANGE_DEFAULT_ORDER_OF_FINDING_IN_INDICES = False
     GLOBALS.reset_function_count()
 
@@ -823,6 +992,7 @@ def test_derivatives():
 
 def test_hvp():
     # test Hessian vector product against PyTorch implementation
+    GLOBALS.CHANGE_DEFAULT_ORDER_OF_FINDING_IN_INDICES = False
 
     (W0, U0, x0, x, h1, h2, h3, h4) = _create_unit_test_a()
     (_unused_W, _unused_nonlin, _unused_U, _unused_loss) = (h1, h2, h3, h4)
@@ -882,6 +1052,8 @@ def test_hvp():
     check_equal(hvp(loss0, x_var, x0), hessian(f)(x) * x)
 
 def test_transpose():
+    GLOBALS.CHANGE_DEFAULT_ORDER_OF_FINDING_IN_INDICES = False
+
     d = 10
     x00 = torch.ones((d,))
     ma0 = 2 * torch.ones(d, d)
@@ -1008,13 +1180,14 @@ def test_nesting():
 
 
 def run_all():
-    test_transpose()
+    test_derivatives()
     sys.exit()
+
+    test_transpose()
     test_nesting()
     test_hvp()
     test_names()
-    # test_derivatives()
-    # sys.exit()
+    test_transpose()
     test_names()
     test_unit_test_a()
     test_diagonal_and_trace()
@@ -1030,6 +1203,9 @@ def run_all():
     test_structured_tensor()
     test_contractible_tensor2()
     test_diagonal_problem()
+
+    test_transpose()
+    sys.exit()
 
 
 if __name__ == '__main__':
