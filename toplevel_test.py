@@ -787,8 +787,31 @@ def test_derivatives():
     check_equal(d2f(x), [[1, 0], [0, 1]])
     check_equal((d2f(x)*dg(x))*dg(x), [[900., -1200.], [-1200., 1600.]])
 
-    gauss_newton = (d2f * dg) * dg
+    gauss_newton = ((d2f @ g) * dg) * dg
     check_equal(gauss_newton(x), [[900., -1200.], [-1200., 1600.]])
+
+    f_slow = loss @ relu
+    f_hess = hessian(f_slow)
+    check_equal(f_hess(x), [[1, 0], [0, 1]])
+
+    f_slow = loss @ U @ relu
+    f_hess = hessian(f_slow)
+    check_equal(f_hess(x), [[74., -86.], [-86., 100.]])
+
+    GLOBALS.reset_function_count()
+    g = h3 @ h2 @ h1
+    dg = D(g)
+    d2f = hessian(h4)
+    gauss_newton = ((d2f @ g) * dg) * dg
+    check_equal(gauss_newton(x), [[900., -1200.], [-1200., 1600.]])
+
+    print(gauss_newton.human_readable)
+    GLOBALS.reset_function_count()
+    f_slow = h4 @ (h3 @ h2 @ h1)
+    myhess = hessian(f_slow)
+    print(myhess.human_readable)
+
+    check_equal(hessian(f_slow)(x), [[900., -1200.], [-1200., 1600.]])
 
 
 def test_transpose():

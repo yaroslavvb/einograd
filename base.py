@@ -1734,6 +1734,7 @@ class Relu(AtomicFunction):
         super().__init__(name=name)
 
     def __call__(self, x: TensorContraction):
+        assert isinstance(x, TensorContraction)
         x = x.value
         return TensorContraction.from_dense_vector(F.relu(x))
 
