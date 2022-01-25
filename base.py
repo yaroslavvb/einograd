@@ -1164,18 +1164,9 @@ class D_(Operator):
     """Differentiation of arbitrary order. IE D_(1) for derivative, D_(2) for Hessian etc"""
     order: int
 
-    def __init__(self, order=1):
-        assert order >= 1
-        self.order = order
-
-    # operator composition
-    def __matmul__(self, other):
-        if isinstance(other, D_):
-            return D_(self.order + other.order)
-        elif isinstance(other, Operator):
-            assert False, "We don't have any other operators implemented"
-        else:
-            return NotImplemented
+    def __init__(self, _dont_use_order=1):
+        assert _dont_use_order >= 1
+        self.order = _dont_use_order
 
     def __call__(self, other: Function) -> Function:
         # atomic function, defer to existing derivative implementation
@@ -1213,8 +1204,8 @@ class D_(Operator):
             assert False, f"Unknown node type: {other}"
 
 
-D = D_(order=1)
-D2 = D @ D
+D = D_(_dont_use_order=1)
+dont_use_D2 = D_(_dont_use_order=2)   # this operator only works correctly on leaf nodes
 
 
 class OldContractibleTensor(Tensor, ABC):

@@ -158,14 +158,14 @@ def test_sigmoid():
 
     nonlin = OldSigmoid(x0.shape[0])
     print('d sigmoid', D(nonlin)(a2))
-    print('d2 sigmoid', D2(nonlin)(a2))
-    print(D2(nonlin).order)
+    print('d2 sigmoid', dont_use_D2(nonlin)(a2))
+    print(dont_use_D2(nonlin).order)
 
     check_close(nonlin(a2), [0.0474259, 0.993307])
     check_close(D(nonlin)(a2), [[0.0451767, 0], [0, 0.00664806]])
-    check_close(D2(nonlin)(a2), [[[0.0408916, 0], [0, 0]], [[0, 0], [0, -0.00655907]]])
+    check_close(dont_use_D2(nonlin)(a2), [[[0.0408916, 0], [0, 0]], [[0, 0], [0, -0.00655907]]])
 
-    assert isinstance(D2(nonlin)(a2), SymmetricBilinearMap)
+    assert isinstance(dont_use_D2(nonlin)(a2), SymmetricBilinearMap)
 
 
 def test_relu():
@@ -190,9 +190,9 @@ def test_least_squares():
     _unused_a5 = h4(a4)
 
     assert isinstance(D(h4)(a4), Covector)
-    assert isinstance(D2(h4)(a4), QuadraticForm)
+    assert isinstance(dont_use_D2(h4)(a4), QuadraticForm)
     check_equal(D(h4)(a4), a4)
-    check_equal(D2(h4)(a4), torch.eye(2))
+    check_equal(dont_use_D2(h4)(a4), torch.eye(2))
 
 
 def test_contraction():
@@ -649,7 +649,7 @@ def test_names():
     assert dW.base_name == 'W'
     assert dW.human_readable == 'D_W'
     assert dW.human_readable == 'D_W'
-    assert (D @ D)(W).human_readable == 'f_zero'
+    assert D(D(W)).human_readable == 'f_zero'
 
     loss1 = LeastSquares()
     dloss1 = D(loss1)
@@ -658,9 +658,9 @@ def test_names():
     assert dloss1.human_readable == 'D_LeastSquares'
     assert dloss2.human_readable == 'D_LeastSquares01'
 
-    ddloss1 = (D @ D)(LeastSquares())
-    assert ddloss1.human_readable == 'D_D_LeastSquares01'
-    assert id(GLOBALS.function_dict['D_D_LeastSquares01']) == id(ddloss1)
+    ddloss1 = D(D(loss1))
+    assert ddloss1.human_readable == 'D_D_LeastSquares'
+    assert id(GLOBALS.function_dict['D_D_LeastSquares']) == id(ddloss1)
 
 
 @pytest.mark.skip(reason="doesn't work yet")
@@ -703,7 +703,9 @@ def test_derivatives():
     D_D_W = D(D_W)
     assert D_D_W.human_readable == 'f_zero'
 
-    hess = D @ D
+    def hess(f):
+        return D(D(f))
+
     print(hess(W)(x))
     check_equal(hess(W)(x), 0)
 
@@ -754,33 +756,24 @@ def test_derivatives():
     check_equal(D(h3)(a3), [[5., -6.], [-7., 8.]])
     check_equal(D(h4)(a4) * D(h3)(a3), [-430, 500])
 
-    check_equal(((((D(h4) @ U @ relu @ W) @ D(U) @ relu @ W) * (D(relu)) @ W) * D(W))(x), [-1500, 2000])
+    dH4 = D(h4) @ U @ relu @ W
+    dH3 = D(U) @ relu @ W
+    dH2 = D(relu) @ W
+    dH1 = D(W)
+    check_equal((dH4 * dH3 * dH2 * dH1)(x), [-1500, 2000])
 
     f_slow = FunctionComposition([h4, h3, h2, h1])
     deriv = D(f_slow)
     check_equal(deriv(x), [-1500, 2000])
-    sys.exit()
 
-    # sum rule
-    expr1 = D(W + U)
-    expr2 = D(W) + D(U)
-    check_equal(expr1(x), expr2(x))
-    print(D(W @ U)(x).value)
+    # second derivatives
+    GLOBALS.reset_function_count()
+    f = lsqr @ W
+    deriv = D(f)
+    hess = D(deriv)
+    check_equal(hess(x), [[10., -14.], [-14., 20.]])
 
-    result = hess(W)(x)
-    # print(result)
-
-    # hessian = (D@D)(loss @ W)
-    # hess
-    # print(hessian(a1).value)
-
-    # chain rule with memoization
-    # GLOBALS.function_call_count = 0
-    # chain = MemoizedFunctionComposition([W, U])  # TODO(y): replace with W @ U
-    # expr1 = D(chain)
-    # expr2 = (D(chain[0]) @ chain[1:]) @ D(chain[1])
-    # check_equal(expr1(x), expr2(x))
-    # assert GLOBALS.function_call_count == 2  # value of U(x) is requested twice, but computed once
+    check_equal((D@D)(f_slow)(x), [[900.,-1200.],[-1200.,1600.]])
 
 
 def test_transpose():
@@ -926,9 +919,6 @@ def test_diagonal_and_trace():
 
 
 def run_all():
-    test_contractible_tensor2()
-    test_transpose()
-    sys.exit()
     test_derivatives()
     sys.exit()
     test_names()
@@ -939,6 +929,8 @@ def run_all():
     test_contract()
     test_dense()
     test_sigmoid()
+    test_contractible_tensor2()
+    test_transpose()
     test_relu()
     test_least_squares()
     test_contraction()
