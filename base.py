@@ -1,7 +1,7 @@
 """Base types used everywhere"""
 
 from abc import ABC, abstractmethod
-from typing import List, Tuple, Dict, Any
+from typing import List, Tuple, Dict, Any, Optional
 from typing import Union
 
 import more_itertools
@@ -2046,7 +2046,7 @@ class MemoizedFunctionComposition:
         self.arg = arg
         self._saved_outputs[len(self.children)] = arg
 
-    def memoized_compute(self, node):
+    def memoized_compute(self, node) -> Optional[torch.Tensor]:
         """Composition([h3,h2,h1]): memoized_compute(h2) computes everything up to h2"""
         assert self.arg is not None, "arg not bound, call _bind first"
         assert id(self._saved_outputs[len(self.children)]) == id(self.arg)
