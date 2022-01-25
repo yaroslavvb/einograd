@@ -991,10 +991,11 @@ class FunctionSharedImpl:
     def __matmul__(self, other: 'Function'):
         assert isinstance(other, Function)
 
-        if isinstance(self, FunctionComposition):
-            return FunctionComposition(self.children + [other])
-        else:
-            return FunctionComposition([self, other])
+        # don't merge Function Composition chains, this complicates caching.
+        #if isinstance(self, FunctionComposition):
+        #    return FunctionComposition(self.children + [other])
+        #else:
+        return FunctionComposition([self, other])
 
     @property
     def human_readable(self):
@@ -1150,7 +1151,7 @@ class MemoizedFunctionComposition(CompositeFunction):
                                                      f"attempted to start at {s.start} "
             return MemoizedFunctionComposition(self.children[s.start:], backlink)
         else:
-            assert False, "use [:] slicing as [i] is ambiguous"
+            assert False, "use [i:i+1] slicing instead of [i] is ambiguous"
             # assert isinstance(s, int)
             # return self.children[s]
 
@@ -1224,11 +1225,26 @@ class UnmemoizedFunctionComposition(CompositeFunction):
         assert len(children) >= 2
         self.children = children
 
+    def __getitem__(self, s):
+        if isinstance(s, slice):
+            if isinstance(s.step, int):
+                assert s.step == 1
+            assert s.stop is None
+            assert len(self.children[s.start:]) > 0, f"only have {len(self.children)} members of composition, " \
+                                                     f"attempted to start at {s.start} "
+            return UnmemoizedFunctionComposition(self.children[s.start:])
+        else:
+            assert False, "use [i:i+1] slicing instead of [i] is ambiguous"
+            # assert isinstance(s, int)
+            # return self.children[s]
+
     def __call__(self, t: 'Tensor'):
         result = self.children[-1](t)
         for c in reversed(self.children[:-1]):
             result = c(result)
         return result
+
+
 FunctionComposition = UnmemoizedFunctionComposition
 # FunctionComposition = MemoizedFunctionComposition
 
