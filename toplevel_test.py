@@ -831,7 +831,7 @@ def test_hvp():
     # (h1, h2, h3, h4) = (W, nonlin, U, loss)
     # f = FunctionComposition([h4, h3, h2, h1])
 
-    f = h4 @ h3 @ h2 @ h1
+    f = FunctionComposition([h4, h3, h2, h1])
 
     def hessian(f):
         return D(D(f))
@@ -1025,6 +1025,7 @@ def test_diagonal_and_trace():
 
 def run_all():
     test_hvp()
+    test_names()
     # test_derivatives()
     # sys.exit()
     test_names()

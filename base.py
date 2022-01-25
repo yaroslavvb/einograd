@@ -1102,7 +1102,7 @@ def make_function_contraction(children) -> Function:
         return FunctionContraction(children)
 
 
-class MemoizedFunctionComposition:
+class MemoizedFunctionComposition(CompositeFunction):
     """Represents a composition of functions with memoization
     Unbound call, ie f@g@h, can be used as intermediate result for constructing a composition
     Bound call, ie (f@g@h)(x), at this point it is frozen and can't be modified.
@@ -1113,6 +1113,8 @@ class MemoizedFunctionComposition:
     arg: Any
 
     def __init__(self, children, parent=None):
+        super().__init__(name='@')
+
         self.arg = None
         self.parent = parent
         self.children = children
