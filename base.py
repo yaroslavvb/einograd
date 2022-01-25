@@ -613,10 +613,24 @@ class TensorContraction(Tensor, TensorSharedImpl):
         # assert len(self.children_specs) == 1
         # assert len(self.children_data[0]) == 2
         new_specs = []
-        for (spec, data, name) in self._original_specs:
-            out_idx, in_idx = spec.split('|')
-            new_spec = in_idx+'|'+out_idx
-            new_specs.insert(0, (new_spec, data, name))
+        for original_spec in self._original_specs:
+            out_idx, in_idx = original_spec[0].split('|')
+            new_idx_spec = in_idx+'|'+out_idx
+
+            assert len(original_spec[1].shape) <= 2, "Don't support transposing tensors with rank above 2"
+            if len(original_spec[1].shape) == 2:
+                new_data = original_spec[1].T
+            else:
+                new_data = original_spec[1]
+
+            if len(original_spec) == 3:
+                (spec, data, name) = original_spec
+                new_tensor_spec = (new_idx_spec, new_data, name)
+            else:
+                assert len(original_spec) == 2
+                (spec, data) = original_spec
+                new_tensor_spec = (new_idx_spec, new_data)
+            new_specs.insert(0, new_tensor_spec)
         return TensorContraction(new_specs)
         # return TensorContraction([(self.children_specs[0], self.children_data[0].T, self.children_labels[0])])
 

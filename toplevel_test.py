@@ -839,6 +839,11 @@ def test_transpose():
 
     assert (row * mat * diag).T.ricci_str == 'b|b,b|a,a|->b|'  # have b|b,a|b,|a->|b
 
+    A0 = torch.tensor([[1, 2], [3, 4]])
+    A = TensorContraction.from_dense_matrix(A0)
+    At0 = A.T.value
+    check_equal(A0.T, At0)
+
 @pytest.mark.skip(reason="doesn't work yet")
 def test_present():
     (W0, U0, x0, x, h1, h2, h3, h4) = _old_create_unit_test_a()
