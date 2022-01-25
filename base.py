@@ -994,10 +994,11 @@ class FunctionSharedImpl:
             return other.__rmatmul__(self)
         else:
             # don't merge Function Composition chains, this complicates caching.
-            if isinstance(self, FunctionComposition):
-                return FunctionComposition(self.children + [other])
-            else:
-                return FunctionComposition([self, other])
+            return FunctionComposition([self, other])
+#            if isinstance(self, FunctionComposition):
+#                return FunctionComposition(self.children + [other])
+#            else:
+#                return FunctionComposition([self, other])
 
     def __rmatmul__(self, other: 'Function'):
         print("Calling R-matmul")

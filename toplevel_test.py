@@ -1180,9 +1180,9 @@ def test_nesting():
 
 
 def run_all():
-    test_derivatives()
+    test_nesting()
     sys.exit()
-
+    test_derivatives()
     test_transpose()
     test_nesting()
     test_hvp()
@@ -1203,9 +1203,6 @@ def run_all():
     test_structured_tensor()
     test_contractible_tensor2()
     test_diagonal_problem()
-
-    test_transpose()
-    sys.exit()
 
 
 if __name__ == '__main__':
