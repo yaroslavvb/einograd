@@ -1111,7 +1111,7 @@ def make_function_composition(children):
     if len(children) == 0:
         return ZeroFunction()
     elif isinstance(children[0], ZeroFunction):
-        return ZeroFunction
+        return ZeroFunction()
     elif len(children) == 1:
         return children[0]
     else:
@@ -1765,7 +1765,7 @@ class D_Relu(AtomicFunction, LinearizedFunction):
         super().__init__(name=name, base_name=base_name, order=order)
 
     def d(self, order=1):
-        return ZeroFunction
+        return ZeroFunction()
 
     def __call__(self, x: TensorContraction) -> TensorContraction:
         if self.order == 1:
