@@ -671,6 +671,7 @@ class TensorContraction(Tensor, TensorSharedImpl):
             in_idx_ranks = {}
             in_idx_rank_tensors = {}
             for idx in left.in_idx:
+                print('doing index ', idx)
                 if len(left.idx_to_in_tensors[idx]) == 1:
                     _tensor_idx = left.idx_to_in_tensors[idx][0]
                     _tensor = self.children_data[_tensor_idx]
@@ -680,10 +681,14 @@ class TensorContraction(Tensor, TensorSharedImpl):
                         assert in_idx_rank_tensors[len(_tensor.shape)] == _tensor_idx
                     else:
                         in_idx_rank_tensors[len(_tensor.shape)] = _tensor_idx
+            if not in_idx_ranks.keys():
+                # fall back on previous method, which works for diagonal tensors
+                left_contracted = left.in_idx[:len(right.out_idx)]
+            else:
+                top_rank = max(in_idx_ranks.keys())
+                assert len(in_idx_ranks[top_rank]) >= len(right.out_idx), "Couldn't find tensor to contract with right"
+                left_contracted = in_idx_ranks[top_rank][:len(right.out_idx)]
 
-            top_rank = max(in_idx_ranks.keys())
-            assert len(in_idx_ranks[top_rank]) >= len(right.out_idx), "Couldn't find tensor to contract with right"
-            
         print(f'matching left {left_contracted} to right {right.out_idx}')
         for left_idx, right_idx in zip(left_contracted, right.out_idx):
             right._rename_index(right_idx, left_idx)
@@ -1735,7 +1740,7 @@ class Relu(AtomicFunction):
 
     def __matmul__(self, other):
         if isinstance(other, AtomicFunction):
-            return MemoizedFunctionComposition([self, other])
+            return FunctionComposition([self, other])
         else:
             return NotImplemented
 
@@ -1765,7 +1770,7 @@ class D_Relu(AtomicFunction, LinearizedFunction):
 
     def __matmul__(self, other):
         if isinstance(other, AtomicFunction):
-            return MemoizedFunctionComposition([self, other])
+            return FunctionComposition([self, other])
         else:
             return NotImplemented
 
@@ -1795,7 +1800,7 @@ class OldSigmoid(AtomicFunction):
 
     def __matmul__(self, other):
         if isinstance(other, AtomicFunction):
-            return MemoizedFunctionComposition([self, other])
+            return FunctionComposition([self, other])
         else:
             return NotImplemented
 
@@ -1835,7 +1840,7 @@ class OldDSigmoid(AtomicFunction, LinearizedFunction):
 
     def __matmul__(self, other):
         if isinstance(other, AtomicFunction):
-            return MemoizedFunctionComposition([self, other])
+            return FunctionComposition([self, other])
         else:
             return NotImplemented
 

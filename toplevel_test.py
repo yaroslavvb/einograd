@@ -713,7 +713,41 @@ def test_derivatives():
     print(D(loss @ W))
 
     # check end-to-end derivative
-    check_equal(D(f_slow)(x), [-1500, 2001])
+    GLOBALS.CHANGE_DEFAULT_ORDER_OF_FINDING_IN_INDICES = True
+    GLOBALS.reset_function_count()
+
+    f_slow = h1
+    deriv = D(f_slow)
+    check_equal(deriv(x), [[1., -2.], [-3., 4.]])
+
+    f_slow = FunctionComposition([h2, h1])
+    deriv = D(f_slow)
+    check_equal(deriv(x), [[0., 0.], [-3., 4.]])
+
+    f_slow = FunctionComposition([h3, h2, h1])
+    deriv = D(f_slow)
+    check_equal(deriv(x), [[18., -24.], [-24., 32.]])
+
+    # f_slow = h4
+    # deriv = D(f_slow)
+    check_equal(D(h4)(a4),  [-30, 40])
+
+    f_slow = h4
+    deriv = D(f_slow)
+    check_equal(deriv(a4),  [-30, 40])
+
+    (W, nonlin, U, loss) = (h1, h2, h3, h4)
+
+    relu = h2
+    lsqr = h4
+
+    check_equal(D(W)(x), [[1., -2.], [-3., 4.]])
+    check_equal(D(relu) @ W * D(W)(x), [[0., 0.], [-3., 4.]])
+    ((D(h4) @ U @ relu @ W) * (D_U01 @ relu @ W) * (D_relu02 @ W) * D_W03)
+
+    f_slow = FunctionComposition([h4, h3, h2, h1])
+    deriv = D(f_slow)
+    check_equal(deriv(x), [-1500, 2000])
     sys.exit()
 
     # sum rule
