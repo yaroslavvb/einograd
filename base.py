@@ -46,6 +46,7 @@ class _GLOBALS_CLASS:
         self.function_count = {}  # {LinearLayer: 1, Relu: 2}
         self.function_dict = {}  # {LinearLayer: 1, Relu: 2}
         self.ALLOW_PARTIAL_CONTRACTIONS = True  # allow some indices of the left tensor to remain uncontracted
+        self.CHANGE_DEFAULT_ORDER_OF_FINDING_IN_INDICES = False   # the original order turned out to be wrong for the Hessian case
         self.ALLOW_UNSORTED_INDICES = False
         self.MAX_INDEX_COUNT = 1000
         self.idx0 = 'a'
@@ -640,8 +641,8 @@ class TensorContraction(Tensor, TensorSharedImpl):
 
         # this can potentially be relaxed to make contractions commutative
         # however, all current applications only need left-to-right order, and this was the only case that's well tested, hence require it
-        assert len(left.in_idx) >= len(right.out_idx), f"only allow partial contraction on left tensor, right tensor must contract all " \
-                                                       f"output indices, contracting {left.ricci_out} with {right.ricci_out}"
+        if not GLOBALS.CHANGE_DEFAULT_ORDER_OF_FINDING_IN_INDICES:
+            assert len(left.in_idx) >= len(right.out_idx), f"only allow partial contraction on left tensor, right tensor must contract all output indices, contracting {left.ricci_out} with {right.ricci_out}"
 
         # rename indices of right to avoid clashes
         if len(right.contracted_idx + right.in_idx):
@@ -652,7 +653,7 @@ class TensorContraction(Tensor, TensorSharedImpl):
             new_indices = left._generate_unused_indices(other=right, count=max_renames)
             rename_count = 0
             left_uncontracted_in_idx = left.in_idx[len(right.out_idx):]
-            taken_indices = set(left.in_idx + left.contracted_idx + left.out_idx)  # this indices are used by LEFT tensor
+            taken_indices = set(left.in_idx + left.contracted_idx + left.out_idx)  # these indices are used by LEFT tensor
             for idx in right.contracted_idx + right.in_idx:
                 # rename all indices of RIGHT that conflict with LEFT unless they are in right's out index set (happens for diagonal)
                 if idx in taken_indices:
@@ -662,7 +663,27 @@ class TensorContraction(Tensor, TensorSharedImpl):
         # match right's out indices to left's in indices
         # left tensor may have more indices than right, this happens in Hessian-vector product
         print('before step 2 rename', left.children_specs, right.children_specs)
-        left_contracted = left.in_idx[:len(right.out_idx)]  # contract these in-indices of LEFT with all out-indices of RIGHT
+        if not GLOBALS.CHANGE_DEFAULT_ORDER_OF_FINDING_IN_INDICES:
+            left_contracted = left.in_idx[:len(right.out_idx)]  # contract these in-indices of LEFT with all out-indices of RIGHT
+        else:
+            # find in_idx corresponding to highest-rank tensor
+
+            in_idx_ranks = {}
+            in_idx_rank_tensors = {}
+            for idx in left.in_idx:
+                if len(left.idx_to_in_tensors[idx]) == 1:
+                    _tensor_idx = left.idx_to_in_tensors[idx][0]
+                    _tensor = self.children_data[_tensor_idx]
+                    in_idx_ranks.setdefault(len(_tensor.shape), []).append(idx)
+                    # ensure we don't try to add twice
+                    if len(_tensor.shape) in in_idx_rank_tensors:
+                        assert in_idx_rank_tensors[len(_tensor.shape)] == _tensor_idx
+                    else:
+                        in_idx_rank_tensors[len(_tensor.shape)] = _tensor_idx
+
+            top_rank = max(in_idx_ranks.keys())
+            assert len(in_idx_ranks[top_rank]) >= len(right.out_idx), "Couldn't find tensor to contract with right"
+            
         print(f'matching left {left_contracted} to right {right.out_idx}')
         for left_idx, right_idx in zip(left_contracted, right.out_idx):
             right._rename_index(right_idx, left_idx)

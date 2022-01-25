@@ -703,15 +703,11 @@ def test_derivatives():
     print(hess(W)(x))
     check_equal(hess(W)(x), 0)
 
-
-
     check_equal(hess(loss)(x), torch.eye(2))
     first_deriv = D(loss @ W)
     second_deriv = D(first_deriv)
     print(second_deriv)
     print(hess(U))
-    sys.exit()
-    # print(second_deriv(x))
 
     print(hess(loss @ W))
     print(D(loss @ W))
