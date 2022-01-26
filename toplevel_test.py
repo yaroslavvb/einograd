@@ -1348,6 +1348,10 @@ def test_derivatives_factored():
 
     print(diag_flops_regular, diag_flops_factored, full_flops_factored)
 
+    GLOBALS.CHANGE_DEFAULT_ORDER_OF_FINDING_IN_INDICES = False
+    GLOBALS.DEBUG_HESSIAN = True
+
+
 
 def test_activation_reuse():
     (W0, U0, x0, x, h1, h2, h3, h4) = _create_unit_test_a()
@@ -1479,16 +1483,14 @@ def run_all():
     test_unit_test_a()
     test_activation_reuse2()
     test_activation_reuse()
-    # sys.exit()
     test_derivatives_factored()
+    test_hvp()
     test_factored_diagonal()
     test_nesting()
     test_transpose()
     test_nesting()
-    # test_hvp()
-    #  test_names()
+    test_names()
     test_transpose()
-    #  test_names()
     test_diagonal_and_trace()
     test_contractible_tensor2()
     test_partial_contraction_UnitTestC()
