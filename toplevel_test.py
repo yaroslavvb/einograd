@@ -837,6 +837,72 @@ def test_hvp():
     loss0 = loss(net(x_var))
     check_equal(hvp(loss0, x_var, x0), hessian(f)(x) * x)
 
+@pytest.mark.skip()
+def test_memoized_hvp():
+    # test Hessian vector product against PyTorch implementation
+    GLOBALS.CHANGE_DEFAULT_ORDER_OF_FINDING_IN_INDICES = False
+
+    GLOBALS.enable_memoization = True
+
+    (W0, U0, x0, x, h1, h2, h3, h4) = _create_unit_test_a()
+    (_unused_W, _unused_nonlin, _unused_U, _unused_loss) = (h1, h2, h3, h4)
+    (W, nonlin, U, loss) = (h1, h2, h3, h4)
+
+    # (h1, h2, h3, h4) = (W, nonlin, U, loss)
+    # f = FunctionComposition([h4, h3, h2, h1])
+
+    f = make_function_composition([h4, h3, h2, h1])
+    f._bind(x)
+
+    def hessian(f):
+        return D(D(f))
+
+    check_equal(hessian(f)(x) * x, [-1500, 2000])
+
+    # obtain it using PyTorch
+    from torch.autograd import Variable
+    from torch import autograd
+
+    class LeastSquaresLoss(nn.Module):
+        def __init__(self):
+            super(LeastSquaresLoss, self).__init__()
+            return
+
+        def forward(self, data, targets=None):
+            if targets is None:
+                targets = torch.zeros_like(data)
+
+            if len(data.shape) == 1:
+                err = data - targets
+            else:
+                err = data - targets.view(-1, data.shape[1])
+            return torch.sum(err * err) / 2
+
+    def hvp(loss, param, v):
+        grad_f, = autograd.grad(loss, param, create_graph=True)
+        z = grad_f.flatten() @ v
+        hvp, = autograd.grad(z, param, retain_graph=True)
+        # hvp, = autograd.grad(grad_f, param, v.view_as(grad_f))  # faster versio 531 -> 456
+        return hvp
+
+    b = 1
+
+    W = create_linear([[1, -2], [-3, 4]])
+    U = create_linear([[5, -6], [-7, 8]])
+    loss = LeastSquaresLoss()
+
+    print("\nrelu")
+    nonlin = nn.ReLU()
+    layers = [W, nonlin, U]
+
+    net = nn.Sequential(*layers)
+
+    x0 = to_pytorch([1, 2])
+    x_var = Variable(x0, requires_grad=True)
+    loss0 = loss(net(x_var))
+    check_equal(hvp(loss0, x_var, x0), hessian(f)(x) * x)
+    GLOBALS.reset_global_state()
+
 
 def test_transpose():
     GLOBALS.CHANGE_DEFAULT_ORDER_OF_FINDING_IN_INDICES = False
@@ -1013,6 +1079,7 @@ def test_factored_diagonal():
 
 
 def test_derivatives_factored():
+    GLOBALS.reset_global_state()
     (W0, U0, x0, x, h1, h2, h3, h4) = _create_unit_test_a()
     (_unused_W, _unused_nonlin, _unused_U, _unused_loss) = (h1, h2, h3, h4)
     (W, nonlin, U, loss) = (h1, h2, h3, h4)
@@ -1319,6 +1386,7 @@ def test_activation_reuse2():
 
 
 def run_all():
+    test_memoized_hvp()
     test_hvp()
     test_outer_product()
     test_derivatives()
