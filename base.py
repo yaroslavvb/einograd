@@ -55,6 +55,7 @@ class _GLOBALS_CLASS:
         self.idx0 = 'a'
         self.all_indices = set(chr(ord(self.idx0) + i) for i in range(self.MAX_INDEX_COUNT))
         self.all_indices_list = tuple(chr(ord(self.idx0) + i) for i in range(self.MAX_INDEX_COUNT))
+        self.enable_memoization = False
 
     def generate_tensor_name(self):
         name = f'T{self.tensor_count:02d}'
@@ -995,7 +996,10 @@ class FunctionSharedImpl:
             return other.__rmatmul__(self)
         else:
             # don't merge Function Composition chains, this complicates caching.
-            return FunctionComposition([self, other])
+            if GLOBALS.enable_memoization:
+                return MemoizedFunctionComposition([self, other])
+            else:
+                return UnmemoizedFunctionComposition([self, other])
 
     #            if isinstance(self, FunctionComposition):
     #                return FunctionComposition(self.children + [other])
@@ -1004,10 +1008,16 @@ class FunctionSharedImpl:
 
     def __rmatmul__(self, other: 'Function'):
         print("Calling R-matmul")
-        if isinstance(self, FunctionComposition):
-            return FunctionComposition([other] + self.children)
+        if isinstance(self, MemoizedOrUnemoizedFunctionComposition):
+            if GLOBALS.enable_memoization:
+                return MemoizedFunctionComposition([other] + self.children)
+            else:
+                return UnmemoizedFunctionComposition([other] + self.children)
         else:
-            return FunctionComposition([other, self])
+            if GLOBALS.enable_memoization:
+                return MemoizedFunctionComposition([other, self])
+            else:
+                return UnmemoizedFunctionComposition([other, self])
 
     @property
     def human_readable(self):
@@ -1302,7 +1312,7 @@ class UnmemoizedFunctionComposition(MemoizedOrUnemoizedFunctionComposition):
         pass
 
 
-FunctionComposition = UnmemoizedFunctionComposition
+# FunctionComposition = UnmemoizedFunctionComposition
 # FunctionComposition = MemoizedFunctionComposition
 
 def make_function_composition(children):
@@ -1313,7 +1323,10 @@ def make_function_composition(children):
     elif len(children) == 1:
         return children[0]
     else:
-        return FunctionComposition(children)
+        if GLOBALS.enable_memoization:
+            return MemoizedFunctionComposition(children)
+        else:
+            return UnmemoizedFunctionComposition(children)
 
 
 class AtomicFunction(Function, FunctionSharedImpl):
@@ -1962,7 +1975,10 @@ class D_Relu(AtomicFunction, LinearizedFunction):
 
     def __matmul__(self, other):
         if isinstance(other, AtomicFunction):
-            return FunctionComposition([self, other])
+            if GLOBALS.enable_memoization:
+                return MemoizedFunctionComposition([self, other])
+            else:
+                return UnmemoizedFunctionComposition([self, other])
         else:
             return NotImplemented
 

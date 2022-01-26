@@ -572,7 +572,7 @@ def test_overall():
     hvp = hess @ vector
     print(hvp.flops)
     print(hvp.value)
-
+"""
 def test_names():
     (W0, U0, x0, x, h1, h2, h3, h4) = _create_unit_test_a()
     (_unused_W, _unused_nonlin, _unused_U, _unused_loss) = (h1, h2, h3, h4)
@@ -604,10 +604,8 @@ def test_names():
     ddloss1 = D(D(loss1))
     assert ddloss1.human_readable == 'D_D_LeastSquares'
     assert id(GLOBALS.function_dict['D_D_LeastSquares']) == id(ddloss1)
-"""
 
 
-# @pytest.mark.skip(reason="doesn't work yet")
 def test_derivatives():
     (W0, U0, x0, x, h1, h2, h3, h4) = _create_unit_test_a()
     (_unused_W, _unused_nonlin, _unused_U, _unused_loss) = (h1, h2, h3, h4)
@@ -615,7 +613,7 @@ def test_derivatives():
 
     # (h1, h2, h3, h4) = (W, nonlin, U, loss)
     f = MemoizedFunctionComposition([h4, h3, h2, h1])
-    f_slow = FunctionComposition([h4, h3, h2, h1])
+    f_slow = UnmemoizedFunctionComposition([h4, h3, h2, h1])
     assert type(h1) == LinearLayer
     assert type(h4) == LeastSquares
 
@@ -674,11 +672,11 @@ def test_derivatives():
     deriv = D(f_slow)
     check_equal(deriv(x), [[1., -2.], [-3., 4.]])
 
-    f_slow = FunctionComposition([h2, h1])
+    f_slow = UnmemoizedFunctionComposition([h2, h1])
     deriv = D(f_slow)
     check_equal(deriv(x), [[0., 0.], [-3., 4.]])
 
-    f_slow = FunctionComposition([h3, h2, h1])
+    f_slow = UnmemoizedFunctionComposition([h3, h2, h1])
     deriv = D(f_slow)
     check_equal(deriv(x), [[18., -24.], [-24., 32.]])
 
@@ -710,7 +708,7 @@ def test_derivatives():
     dH1 = D(W)
     check_equal((dH4 * dH3 * dH2 * dH1)(x), [-1500, 2000])
 
-    f_slow = FunctionComposition([h4, h3, h2, h1])
+    f_slow = UnmemoizedFunctionComposition([h4, h3, h2, h1])
     deriv = D(f_slow)
     check_equal(deriv(x), [-1500, 2000])
 
@@ -774,7 +772,7 @@ def test_derivatives():
     check_equal(hessian(f_slow)(x).trace, 2500)
 
     check_equal(hessian(f_slow)(x), [[900., -1200.], [-1200., 1600.]])
-    # GLOBALS.CHANGE_DEFAULT_ORDER_OF_FINDING_IN_INDICES = False
+    GLOBALS.CHANGE_DEFAULT_ORDER_OF_FINDING_IN_INDICES = False
     # GLOBALS.switch_composition_order = True
 
 
@@ -786,7 +784,7 @@ def test_derivatives_old():
 
     # (h1, h2, h3, h4) = (W, nonlin, U, loss)
     f = MemoizedFunctionComposition([h4, h3, h2, h1])
-    f_slow = FunctionComposition([h4, h3, h2, h1])
+    f_slow = make_function_composition([h4, h3, h2, h1])
     assert type(h1) == LinearLayer
     assert type(h4) == LeastSquares
 
@@ -841,11 +839,11 @@ def test_derivatives_old():
     deriv = D(f_slow)
     check_equal(deriv(x), [[1., -2.], [-3., 4.]])
 
-    f_slow = FunctionComposition([h2, h1])
+    f_slow = make_function_composition([h2, h1])
     deriv = D(f_slow)
     check_equal(deriv(x), [[0., 0.], [-3., 4.]])
 
-    f_slow = FunctionComposition([h3, h2, h1])
+    f_slow = make_function_composition([h3, h2, h1])
     deriv = D(f_slow)
     check_equal(deriv(x), [[18., -24.], [-24., 32.]])
 
@@ -877,7 +875,7 @@ def test_derivatives_old():
     dH1 = D(W)
     check_equal((dH4 * dH3 * dH2 * dH1)(x), [-1500, 2000])
 
-    f_slow = FunctionComposition([h4, h3, h2, h1])
+    f_slow = make_function_composition([h4, h3, h2, h1])
     deriv = D(f_slow)
     check_equal(deriv(x), [-1500, 2000])
 
@@ -948,7 +946,7 @@ def test_hvp():
     # (h1, h2, h3, h4) = (W, nonlin, U, loss)
     # f = FunctionComposition([h4, h3, h2, h1])
 
-    f = FunctionComposition([h4, h3, h2, h1])
+    f = make_function_composition([h4, h3, h2, h1])
 
     def hessian(f):
         return D(D(f))
@@ -1180,7 +1178,7 @@ def test_derivatives_factored():
 
     # (h1, h2, h3, h4) = (W, nonlin, U, loss)
     f = MemoizedFunctionComposition([h4, h3, h2, h1])
-    f_slow = FunctionComposition([h4, h3, h2, h1])
+    f_slow = UnmemoizedFunctionComposition([h4, h3, h2, h1])
     assert type(h1) == LinearLayer
     assert type(h4) == LeastSquares
 
@@ -1235,11 +1233,11 @@ def test_derivatives_factored():
     deriv = D(f_slow)
     check_equal(deriv(x), [[1., -2.], [-3., 4.]])
 
-    f_slow = FunctionComposition([h2, h1])
+    f_slow = make_function_composition([h2, h1])
     deriv = D(f_slow)
     check_equal(deriv(x), [[0., 0.], [-3., 4.]])
 
-    f_slow = FunctionComposition([h3, h2, h1])
+    f_slow = make_function_composition([h3, h2, h1])
     deriv = D(f_slow)
     check_equal(deriv(x), [[18., -24.], [-24., 32.]])
 
@@ -1271,7 +1269,7 @@ def test_derivatives_factored():
     dH1 = D(W)
     check_equal((dH4 * dH3 * dH2 * dH1)(x), [-1500, 2000])
 
-    f_slow = FunctionComposition([h4, h3, h2, h1])
+    f_slow = make_function_composition([h4, h3, h2, h1])
     deriv = D(f_slow)
     check_equal(deriv(x), [-1500, 2000])
 
@@ -1392,7 +1390,7 @@ def test_activation_reuse():
     # creating new composition does not reuse cache
     (W0, U0, x0, x, h1, h2, h3, h4) = _create_unit_test_a()
     (_unused_W, _unused_nonlin, _unused_U, _unused_loss) = (h1, h2, h3, h4)
-    f = FunctionComposition([h4, h3, h2, h1])
+    f = make_function_composition([h4, h3, h2, h1])
     _unused_result = f(x)
     assert GLOBALS.get_global_forward_flops() == 2 * 4
 
@@ -1473,23 +1471,24 @@ def test_activation_reuse2():
 
 
 def run_all():
+    test_hvp()
+    test_outer_product()
     test_derivatives()
-    sys.exit()
+    # sys.exit()
+    test_outer_product()
     test_unit_test_a()
     test_activation_reuse2()
     test_activation_reuse()
-    sys.exit()
+    # sys.exit()
     test_derivatives_factored()
     test_factored_diagonal()
-    test_outer_product()
-    test_hvp()
     test_nesting()
     test_transpose()
     test_nesting()
-    test_hvp()
-    test_names()
+    # test_hvp()
+    #  test_names()
     test_transpose()
-    test_names()
+    #  test_names()
     test_diagonal_and_trace()
     test_contractible_tensor2()
     test_partial_contraction_UnitTestC()
