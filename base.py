@@ -1240,7 +1240,7 @@ class UnmemoizedFunctionComposition(CompositeFunction):
     def __init__(self, children: List['Function']):
         super().__init__(name='@')
         # self.name = '@'
-        assert len(children) >= 2
+        # assert len(children) >= 2
         self.children = children
 
     def __getitem__(self, s):
@@ -1359,13 +1359,17 @@ class D_(Operator):
         elif isinstance(other, FunctionComposition):
             mul_children1 = []  # old way
             for (i, c1) in enumerate(other.children):
-                mul_children1.append(make_function_composition([D(c1)] + other.children[i + 1:]))
-                continue
+                if i+1 >= len(other.children):  # last term
+                    mul_children1.append(D(c1))
+                else:
+                    mul_children1.append(make_function_composition([D(c1)] + [other[i + 1:]]))
+                # mul_children1.append(make_function_composition([D(c1)] + other.children[i + 1:]))
 
                 # old logic for memoized conversion
-                if i + 1 >= len(other.children):
-                    break
-                mul_children1.append(make_function_composition([D(c1)] + [other[i + 1:]]))
+                # if i + 1 >= len(other.children):
+                #     break
+                # mul_children1.append(make_function_composition([D(c1)] + [other[i + 1:]]))
+
             #mul_children2 = []  # new way
             #for i in range(len(other.children)-1, -1, -1):
             #    c1 = other.children[i]
