@@ -1134,7 +1134,8 @@ def make_function_contraction(children) -> Function:
 
 
 class MemoizedOrUnemoizedFunctionComposition(CompositeFunction):
-    pass
+    def is_arg_bound(self):
+        pass
 
 
 class MemoizedFunctionComposition(MemoizedOrUnemoizedFunctionComposition):
@@ -1147,10 +1148,10 @@ class MemoizedFunctionComposition(MemoizedOrUnemoizedFunctionComposition):
     parent: 'MemoizedFunctionComposition'
     arg: Any
 
-    def __init__(self, children, parent=None):
+    def __init__(self, children, parent=None, arg=None):
         super().__init__(name='@')
 
-        self.arg = None
+        self.arg = arg
         self.parent = parent
         self.children = children
         self._saved_outputs = [None] * (len(children) + 1)
@@ -1184,7 +1185,7 @@ class MemoizedFunctionComposition(MemoizedOrUnemoizedFunctionComposition):
 
     # only allow simple slicing
     def __getitem__(self, s):
-        assert self.arg is not None, f"Can't slice composition chain {self} without binding argument first"
+        assert self.arg is not None, f"Can't slice composition chain {self}{s} without binding argument first"
         if isinstance(s, slice):
             if isinstance(s.step, int):
                 assert s.step == 1
@@ -1206,6 +1207,9 @@ class MemoizedFunctionComposition(MemoizedOrUnemoizedFunctionComposition):
         print('binding ', arg)
         self.arg = arg
         self._saved_outputs[len(self.children)] = arg
+
+    def is_arg_bound(self):
+        return hasattr(self, 'arg') and self.arg is not None
 
     def memoized_compute(self, node) -> Optional[torch.Tensor]:
         """Composition([h3,h2,h1]): memoized_compute(h2) computes everything up to h2"""
@@ -1264,9 +1268,10 @@ class MemoizedFunctionComposition(MemoizedOrUnemoizedFunctionComposition):
         if self.parent is not None:
             assert isinstance(self.parent, MemoizedFunctionComposition)
             if self.parent.arg is not None:
-                assert id(arg) == id(self.parent.arg)
-            else:
-                self.parent._bind(arg)
+                if arg is not None:
+                    assert id(arg) == id(self.parent.arg)
+            #else:
+            #    self.parent._bind(arg)
             return self.parent.memoized_compute(self.children[0])
 
         if self.arg is None:
@@ -1294,6 +1299,7 @@ class UnmemoizedFunctionComposition(MemoizedOrUnemoizedFunctionComposition):
         # self.name = '@'
         # assert len(children) >= 2
         self.children = children
+        self.arg = None
 
     def __getitem__(self, s):
         if isinstance(s, slice):
@@ -1317,11 +1323,14 @@ class UnmemoizedFunctionComposition(MemoizedOrUnemoizedFunctionComposition):
     def _bind(self, x):  # for compatibility with MemoizedFunctionComposition
         pass
 
+    def is_arg_bound(self):
+        return hasattr(self, 'arg') and self.arg is not None
+
 
 # FunctionComposition = UnmemoizedFunctionComposition
 # FunctionComposition = MemoizedFunctionComposition
 
-def make_function_composition(children):
+def make_function_composition(children, arg=None):
     if len(children) == 0:
         return ZeroFunction()
     elif isinstance(children[0], ZeroFunction):
@@ -1330,7 +1339,7 @@ def make_function_composition(children):
         return children[0]
     else:
         if GLOBALS.enable_memoization:
-            return MemoizedFunctionComposition(children)
+            return MemoizedFunctionComposition(children, arg=arg)
         else:
             return UnmemoizedFunctionComposition(children)
 
@@ -1415,27 +1424,15 @@ class D_(Operator):
 
         # chain rule
         elif isinstance(other, MemoizedOrUnemoizedFunctionComposition):
+            if isinstance(other, MemoizedFunctionComposition):
+                assert other.is_arg_bound()
             mul_children1 = []  # old way
             for (i, c1) in enumerate(other.children):
                 if i + 1 == len(other.children):  # last term
                     mul_children1.append(D(c1))
-                elif i + 1 == len(other.children) - 1:
-                    #mul_children1.append(make_function_composition([D(c1)] + other.children[i + 1:]))
-                    mul_children1.append(make_function_composition([D(c1)] + [other[i + 1:]]))
-                else:   # TODO(y): redundant
-                    mul_children1.append(make_function_composition([D(c1)] + [other[i + 1:]]))
-                # mul_children1.append(make_function_composition([D(c1)] + other.children[i + 1:]))
+                else:
+                    mul_children1.append(make_function_composition([D(c1)] + [other[i + 1:]], arg=other.arg))
 
-                # old logic for memoized conversion
-                # if i + 1 >= len(other.children):
-                #     break
-                # mul_children1.append(make_function_composition([D(c1)] + [other[i + 1:]]))
-
-            # mul_children2 = []  # new way
-            # for i in range(len(other.children)-1, -1, -1):
-            #    c1 = other.children[i]
-            #    mul_children2.append(make_function_composition([D(c1)] + other.children[i + 1:]))
-            # mul_children2 = list(reversed(mul_children2))
             return make_function_contraction(mul_children1)
 
         else:
