@@ -653,8 +653,12 @@ def test_derivatives():
     print(hess(W)(x))
     check_equal(hess(W)(x), 0)
 
+    # loss._bind(x)
     check_equal(hess(loss)(x), torch.eye(2))
-    first_deriv = D(loss @ W)
+    func = loss @ W
+    func._bind(x)
+    first_deriv = D(func)
+    # first_deriv._bind(x)
     second_deriv = D(first_deriv)
     print(second_deriv)
     print(hess(U))
@@ -1469,6 +1473,8 @@ def test_activation_reuse2():
 
 
 def run_all():
+    test_derivatives()
+    sys.exit()
     test_unit_test_a()
     test_activation_reuse2()
     test_activation_reuse()
@@ -1478,7 +1484,6 @@ def run_all():
     test_outer_product()
     test_hvp()
     test_nesting()
-    test_derivatives()
     test_transpose()
     test_nesting()
     test_hvp()

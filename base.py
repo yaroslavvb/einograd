@@ -1298,6 +1298,9 @@ class UnmemoizedFunctionComposition(MemoizedOrUnemoizedFunctionComposition):
             result = c(result)
         return result
 
+    def _bind(self, x):  # for compatibility with MemoizedFunctionComposition
+        pass
+
 
 FunctionComposition = UnmemoizedFunctionComposition
 # FunctionComposition = MemoizedFunctionComposition
