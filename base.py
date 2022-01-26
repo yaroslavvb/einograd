@@ -46,7 +46,7 @@ class _GLOBALS_CLASS:
         self.init_values()
 
     def init_values(self):
-        self.DEBUG_HESSIAN = True
+        self.FULL_HESSIAN = True
         self.switch_composition_order = False
         self.global_forward_flops = 0
         self.device = 'cpu'
@@ -62,7 +62,7 @@ class _GLOBALS_CLASS:
         self.all_indices = set(chr(ord(self.idx0) + i) for i in range(self.MAX_INDEX_COUNT))
         self.all_indices_list = tuple(chr(ord(self.idx0) + i) for i in range(self.MAX_INDEX_COUNT))
         self.enable_memoization = False
-        self.debug_print = True
+        self.debug_print = False
         
     def p(self, *args):
         if self.debug_print:
@@ -1772,7 +1772,7 @@ class D_LeastSquares(AtomicFunction, LinearizedFunction):
             # GLOBALS.p("")
             # assert False, f"sys.exit() {GLOBALS.DEBUG_HESSIAN}"
             assert len(x.out_dims) == 1
-            if GLOBALS.DEBUG_HESSIAN:
+            if GLOBALS.FULL_HESSIAN:
                 return TensorContraction.from_dense_quadratic_form(torch.eye(x.out_dims[0]))
             else:
                 # return Hessian subspace using Rademacher variables

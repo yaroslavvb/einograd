@@ -1267,15 +1267,17 @@ def test_derivatives_factored():
     myhess = hessian(f_slow)
     diag_flops_regular = diag(myhess(x)).flops
 
-    GLOBALS.DEBUG_HESSIAN = False
+    GLOBALS.FULL_HESSIAN = False
     myhess = hessian(f_slow)
     diag_flops_factored = diag(myhess(x)).flops
     full_flops_factored = myhess(x).flops
 
     print(diag_flops_regular, diag_flops_factored, full_flops_factored)
+    assert diag_flops_regular == 64, "Change detected"
+    assert diag_flops_factored == 38, "Change detected"
 
     GLOBALS.CHANGE_DEFAULT_ORDER_OF_FINDING_IN_INDICES = False
-    GLOBALS.DEBUG_HESSIAN = True
+    GLOBALS.FULL_HESSIAN = True
 
 
 def test_activation_reuse():
@@ -1416,7 +1418,18 @@ def test_large_hvp():
     def hessian(f):
         return D(D(f))
 
+    g = D(f)
     h = hessian(f)
+    print("Gradient Flops: ", g(x).flops/10**9)
+    print("HVP Flops: ", (h(x) * x).flops/10**9)
+    print("Hessian Flops: ", h(x).flops/10**9)
+    print("Hessian Trace: ", trace(h(x)).flops/10**9)
+
+    GLOBALS.FULL_HESSIAN = False
+    print("Hessian Trace efficient: ", trace(h(x)).flops/10**9)
+
+    print((h(x) * x).value)
+
     assert False
     # check_equal(hessian(f)(x) * x, [-1500, 2000])
 
@@ -1466,8 +1479,9 @@ def test_large_hvp():
 
 
 def run_all():
-    test_large_hvp()
+    test_derivatives_factored()
     sys.exit()
+    test_large_hvp()
     test_memoized_hvp()
     test_hvp()
     test_outer_product()
