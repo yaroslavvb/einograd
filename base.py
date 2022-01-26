@@ -1018,6 +1018,7 @@ class FunctionSharedImpl:
         if isinstance(self, CompositeFunction):
             child_str = self.name.join(str(c) for c in self.children)
             assert len(self.children) > 0, "found composition with one child or less"
+            # return f'({self.name}:{child_str})'  # (1+2)
             return f'({child_str})'  # (1+2)
         else:
             return self.name
@@ -1135,7 +1136,8 @@ class MemoizedFunctionComposition(CompositeFunction):
         # are already pointing to the parent composition
         for child in children:
             if parent:
-                assert child.parent == parent
+                #  assert child.parent == parent
+                pass
             else:
                 if hasattr(child, 'parent') and child.parent is not None:
                     if child.parent == self:
@@ -1162,8 +1164,8 @@ class MemoizedFunctionComposition(CompositeFunction):
         if isinstance(s, slice):
             if isinstance(s.step, int):
                 assert s.step == 1
-            error_msg = "this case hasn't been tested, for now only single level of parent  redirection is allowed"
-            assert self.parent is None, error_msg
+            # error_msg = "this case hasn't been tested, for now only single level of parent  redirection is allowed"
+            # assert self.parent is None, error_msg
             backlink = self if self.parent is None else self.parent
             assert s.stop is None
             assert len(self.children[s.start:]) > 0, f"only have {len(self.children)} members of composition, " \
@@ -1264,7 +1266,7 @@ class UnmemoizedFunctionComposition(CompositeFunction):
 
 
 FunctionComposition = UnmemoizedFunctionComposition
-#  FunctionComposition = MemoizedFunctionComposition
+# FunctionComposition = MemoizedFunctionComposition
 
 def make_function_composition(children):
     if len(children) == 0:
@@ -1359,8 +1361,10 @@ class D_(Operator):
         elif isinstance(other, FunctionComposition):
             mul_children1 = []  # old way
             for (i, c1) in enumerate(other.children):
-                if i+1 >= len(other.children):  # last term
+                if i+1 == len(other.children):  # last term
                     mul_children1.append(D(c1))
+                elif i+1 == len(other.children) - 1:
+                    mul_children1.append(make_function_composition([D(c1)] + other.children[i + 1:]))
                 else:
                     mul_children1.append(make_function_composition([D(c1)] + [other[i + 1:]]))
                 # mul_children1.append(make_function_composition([D(c1)] + other.children[i + 1:]))
