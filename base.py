@@ -62,6 +62,11 @@ class _GLOBALS_CLASS:
         self.all_indices = set(chr(ord(self.idx0) + i) for i in range(self.MAX_INDEX_COUNT))
         self.all_indices_list = tuple(chr(ord(self.idx0) + i) for i in range(self.MAX_INDEX_COUNT))
         self.enable_memoization = False
+        self.debug_print = True
+        
+    def p(self, *args):
+        if self.debug_print:
+            print(*args)
 
     def generate_tensor_name(self):
         name = f'T{self.tensor_count:02d}'
@@ -324,16 +329,16 @@ class TensorContraction(Tensor, TensorSharedImpl):
 
         # Arrange output indices to order right-most tensors output indices first (see UnitTestC)
         new_in_idx = []
-        print('========')
-        print(in_idx_order)
+        GLOBALS.p('========')
+        GLOBALS.p(in_idx_order)
         # for each in index determine the largest index tensor for which it's an in-index
         in_idx_to_rightmost_tensor = {}
         for (idx, tensor_id_tuple) in in_idx_order:
             for tensor_id in tensor_id_tuple:
                 in_idx_to_rightmost_tensor[idx] = max(in_idx_to_rightmost_tensor.get(idx, -1), tensor_id)
 
-        print('in_idx_order ', in_idx_order)
-        # print('index i has rank', in_idx_to_rightmost_tensor['i'])
+        GLOBALS.p('in_idx_order ', in_idx_order)
+        # GLOBALS.p('index i has rank', in_idx_to_rightmost_tensor['i'])
         for rightmost_tensor_id in reversed(sorted(in_idx_to_rightmost_tensor.values())):
             for (idx, tensor_id_tuple) in in_idx_order:
                 if max(tensor_id_tuple) != rightmost_tensor_id:
@@ -398,7 +403,7 @@ class TensorContraction(Tensor, TensorSharedImpl):
                 einsum_out = ''.join(self.out_idx) + ''.join(self.in_idx)
                 self._einsum_spec = f'{einsum_in}->{einsum_out}'
             else:
-                print("diagonal tensor, no einsum for " + ','.join(self.children_specs))
+                GLOBALS.p("diagonal tensor, no einsum for " + ','.join(self.children_specs))
                 self._einsum_spec = None  # unsupported by torch.einsum
 
     @staticmethod
@@ -453,8 +458,8 @@ class TensorContraction(Tensor, TensorSharedImpl):
         # TODO(y): replace terms with something user provided
         # terms: ['term1', 'term2', 'term3', 'term4']
         terms = [f'term{i}' for i in range(len(indices))]
-        print('optimizing ', einsum_str, terms)
-        print('flops: ', info.opt_cost)
+        GLOBALS.p('optimizing ', einsum_str, terms)
+        GLOBALS.p('flops: ', info.opt_cost)
 
         # output_subscript: ['kl']
         output_subscript = output_indices
@@ -465,10 +470,10 @@ class TensorContraction(Tensor, TensorSharedImpl):
         derived_count = 0
         for i, contract_inds in enumerate(path):
             contract_inds = tuple(sorted(list(contract_inds), reverse=True))
-            # print(f'contracting {contract_inds}, input {input_index_sets}, output {output_indices}')
+            # GLOBALS.p(f'contracting {contract_inds}, input {input_index_sets}, output {output_indices}')
             contract_tuple = oe_helpers.find_contraction(contract_inds, input_index_sets, output_indices)
             out_inds, input_index_sets, _, idx_contract = contract_tuple
-            # print(f'idx_contract {idx_contract}, out_inds {out_inds}')
+            # GLOBALS.p(f'idx_contract {idx_contract}, out_inds {out_inds}')
 
             current_input_index_sets = [indices.pop(x) for x in contract_inds]
             current_terms = [terms.pop(x) for x in contract_inds]
@@ -493,9 +498,9 @@ class TensorContraction(Tensor, TensorSharedImpl):
                 new_terms.append(current_terms[i])
                 new_sets.append(current_input_index_sets[i])
             # einsum_str = ",".join(current_input_index_sets) + "->" + current_output_indices
-            #        print(f'{derived_term}=einsum({einsum_str}, {current_terms})')
+            #        GLOBALS.p(f'{derived_term}=einsum({einsum_str}, {current_terms})')
             einsum_str = ",".join(new_sets) + "->" + current_output_indices
-            print(f'{derived_term}=einsum({einsum_str}, {new_terms})')
+            GLOBALS.p(f'{derived_term}=einsum({einsum_str}, {new_terms})')
 
     def _check_indices_sorted(self):
         assert more_itertools.is_sorted(self.out_idx, strict=True)
@@ -526,7 +531,7 @@ class TensorContraction(Tensor, TensorSharedImpl):
         if old_name == new_name:
             return
 
-        print(f'renaming {old_name} to {new_name}')
+        GLOBALS.p(f'renaming {old_name} to {new_name}')
 
         def rename_dictionary_entry(d: Dict[chr, Any], old_name: chr, new_name: chr):
             assert isinstance(d, dict)
@@ -666,7 +671,7 @@ class TensorContraction(Tensor, TensorSharedImpl):
         """Contraction operation"""
 
         assert isinstance(other, TensorContraction)
-        print(f'contracting {self} with {other}')
+        GLOBALS.p(f'contracting {self} with {other}')
         #        self._check_indices_sorted()
         #        other._check_indices_sorted()
 
@@ -684,8 +689,8 @@ class TensorContraction(Tensor, TensorSharedImpl):
 
         # rename indices of right to avoid clashes
         if len(right.contracted_idx + right.in_idx):
-            print('before step 1 rename')
-            print(right.children_specs)
+            GLOBALS.p('before step 1 rename')
+            GLOBALS.p(right.children_specs)
 
             max_renames = len(right.contracted_idx + right.in_idx)
             new_indices = left._generate_unused_indices(other=right, count=max_renames)
@@ -700,7 +705,7 @@ class TensorContraction(Tensor, TensorSharedImpl):
 
         # match right's out indices to left's in indices
         # left tensor may have more indices than right, this happens in Hessian-vector product
-        print('before step 2 rename', left.children_specs, right.children_specs)
+        GLOBALS.p('before step 2 rename', left.children_specs, right.children_specs)
         if not GLOBALS.CHANGE_DEFAULT_ORDER_OF_FINDING_IN_INDICES:
             left_contracted = left.in_idx[:len(right.out_idx)]  # contract these in-indices of LEFT with all out-indices of RIGHT
         else:
@@ -731,18 +736,18 @@ class TensorContraction(Tensor, TensorSharedImpl):
             #     assert len(in_idx_ranks[top_rank]) >= len(right.out_idx), "Couldn't find tensor to contract with right"
             #     left_contracted = in_idx_ranks[top_rank][:len(right.out_idx)]
 
-        print(f'matching left {left_contracted} to right {right.out_idx}')
+        GLOBALS.p(f'matching left {left_contracted} to right {right.out_idx}')
         for left_idx, right_idx in zip(left_contracted, right.out_idx):
             right._rename_index(right_idx, left_idx)
-        print('after step 2 rename')
-        print(right.children_specs)
+        GLOBALS.p('after step 2 rename')
+        GLOBALS.p(right.children_specs)
 
         # TODO: here (add ..)
         new_specs = self._transpose_specs(left.children_specs + right.children_specs, left.children_data + right.children_data,
                                           left.children_labels + right.children_labels)
         result = TensorContraction(new_specs, label=f"{self.label}*{other.label}")
-        print(f'contracting {self.label} and {other.label}')
-        print(','.join(self.children_specs) + ' * ' + ','.join(other.children_specs) + ' = ' + ','.join(result.children_specs))
+        GLOBALS.p(f'contracting {self.label} and {other.label}')
+        GLOBALS.p(','.join(self.children_specs) + ' * ' + ','.join(other.children_specs) + ' = ' + ','.join(result.children_specs))
         return result
 
     @staticmethod
@@ -828,7 +833,7 @@ class TensorContraction(Tensor, TensorSharedImpl):
         new_einsum_spec = ','.join(new_terms) + '->' + ein_out
         if self.copy_tensors is None:  # have new logic for copy tensors, this is old logic
             if new_einsum_spec != self._einsum_spec:
-                print("Warning, diagonal hack")
+                GLOBALS.p("Warning, diagonal hack")
                 return torch.einsum(new_einsum_spec, *self.children_data)
         return torch.einsum(self._einsum_spec, *self.children_data)
 
@@ -1013,7 +1018,7 @@ class FunctionSharedImpl:
     #                return FunctionComposition([self, other])
 
     def __rmatmul__(self, other: 'Function'):
-        print("Calling R-matmul")
+        GLOBALS.p("Calling R-matmul")
         if isinstance(self, MemoizedOrUnemoizedFunctionComposition):
             if GLOBALS.enable_memoization:
                 return MemoizedFunctionComposition([other] + self.children)
@@ -1204,7 +1209,7 @@ class MemoizedFunctionComposition(MemoizedOrUnemoizedFunctionComposition):
             # return self.children[s]
 
     def _bind(self, arg):
-        print('binding ', arg)
+        GLOBALS.p('binding ', arg)
         self.arg = arg
         self._saved_outputs[len(self.children)] = arg
 
@@ -1213,16 +1218,16 @@ class MemoizedFunctionComposition(MemoizedOrUnemoizedFunctionComposition):
 
     def memoized_compute(self, node) -> Optional[torch.Tensor]:
         """Composition([h3,h2,h1]): memoized_compute(h2) computes everything up to h2"""
-        print(f'{node}: {self}')
-        print(f"{node} in {self}: {node in self.children}")
-        print(f"### {node} in {self}, have child: {node in self.children} have parent: {self.parent is not None}, {self.parent is not None and 'D_' not in self.parent.human_readable:}")
+        GLOBALS.p(f'{node}: {self}')
+        GLOBALS.p(f"{node} in {self}: {node in self.children}")
+        GLOBALS.p(f"### {node} in {self}, have child: {node in self.children} have parent: {self.parent is not None}, {self.parent is not None and 'D_' not in self.parent.human_readable:}")
         # assert self.arg is not None, f"argument not bound in {self}, call _bind first"
         # assert id(self._saved_outputs[len(self.children)]) == id(self.arg)
 
         if self.parent is not None:
             # terrible hack, special handling for new compositions with derivative terms
             if "D_" not in self.parent.human_readable:
-                print(f"### {self} deferring to parent {self.parent}")
+                GLOBALS.p(f"### {self} deferring to parent {self.parent}")
                 assert isinstance(self.parent, MemoizedFunctionComposition)
                 return self.parent.memoized_compute(node)
 
@@ -1239,18 +1244,18 @@ class MemoizedFunctionComposition(MemoizedOrUnemoizedFunctionComposition):
             else:
                 last_cached = len(self.children)
 
-            print(f'found saved output of {last_cached} node')
+            GLOBALS.p(f'found saved output of {last_cached} node')
             for i in range(last_cached - 1, idx - 1, -1):
                 if i == len(self.children):
                     assert id(self._saved_outputs[last_cached]) == id(self.arg)
                     continue
 
                 if not isinstance(self.children[i], MemoizedFunctionComposition):
-                    print(f"### {self} calling compute on {self.children[i]}")
+                    GLOBALS.p(f"### {self} calling compute on {self.children[i]}")
 
                 result = self.children[i](self._saved_outputs[i + 1])
                 self._saved_outputs[i] = result
-                print('saving output of ', i)
+                GLOBALS.p('saving output of ', i)
 
             return self._saved_outputs[idx]
         else:
@@ -1413,7 +1418,7 @@ class D_(Operator):
             for (i, c1) in enumerate(other.children):
                 mul_children: List[Function] = []
                 dc1 = D(c1)
-                print("differentiating ", c1, " got ", D(c1))
+                GLOBALS.p("differentiating ", c1, " got ", D(c1))
                 for (j, c2) in enumerate(other.children):
                     if i == j:
                         mul_children.append(dc1)
@@ -1497,7 +1502,7 @@ class OldContractibleTensor(Tensor, ABC):
         return upper + lower, upper, lower
 
     def __mul__(self, other):
-        # print('other is ', other)
+        # GLOBALS.p('other is ', other)
         assert isinstance(other, OldContractibleTensor), f"contracting tensor with {type(other)}"
 
         t1 = self
@@ -1764,7 +1769,7 @@ class D_LeastSquares(AtomicFunction, LinearizedFunction):
         if self.order == 1:
             return x.T
         elif self.order == 2:
-            # print("")
+            # GLOBALS.p("")
             # assert False, f"sys.exit() {GLOBALS.DEBUG_HESSIAN}"
             assert len(x.out_dims) == 1
             if GLOBALS.DEBUG_HESSIAN:
@@ -2041,7 +2046,7 @@ class OldDSigmoid(AtomicFunction, LinearizedFunction):
 #         # in2_idx = x.all_idx(offset=len(self.in_idx()))
 #         # out_idx = self.out_idx()
 #         # einsum_str = f"{in1_idx},{in2_idx}->{out_idx}"
-#         # print('doing einsum ', einsum_str)
+#         # GLOBALS.p('doing einsum ', einsum_str)
 #         # data = torch.einsum(einsum_str, self.data, x.data)
 #         # return DenseVector(data)
 
@@ -2216,9 +2221,9 @@ class OldStructuredTensor(Tensor):
         index_spec_list = index_spec_list.copy()
 
         if len(index_spec_list) != len(tensors):
-            print(f"Provided {len(tensors)} tensors, but your index spec has {len(index_spec_list)} terms: ")
+            GLOBALS.p(f"Provided {len(tensors)} tensors, but your index spec has {len(index_spec_list)} terms: ")
             for (i, term) in enumerate(index_spec_list):
-                print(f"term {i:2d}: {term:>20}")
+                GLOBALS.p(f"term {i:2d}: {term:>20}")
                 assert False
 
         self._index_spec_list = index_spec_list
@@ -2367,7 +2372,7 @@ class OldStructuredTensor(Tensor):
     # @staticmethod(x)
 
     def rename_index(self, old_name, new_name):
-        # print(f"naming {tag}:{old_name} to {new_name}")
+        # GLOBALS.p(f"naming {tag}:{old_name} to {new_name}")
 
         def rename_dictionary_entry(d: Dict[chr, Any], old_name: chr, new_name: chr):
             if old_name not in d:
@@ -2428,8 +2433,8 @@ class OldStructuredTensor(Tensor):
                 assert self.in_indices[-1] == chr(ord(self.in_indices[0]) + len(self.in_indices) - 1)
 
     def contract(self, other: 'OldStructuredTensor'):
-        # print('', self._index_spec_list)
-        # print('other old spec list', other._index_spec_list)
+        # GLOBALS.p('', self._index_spec_list)
+        # GLOBALS.p('other old spec list', other._index_spec_list)
 
         # relabeling invariants
         # self.input_indices are larger than any other indices
@@ -2482,12 +2487,12 @@ class OldStructuredTensor(Tensor):
             if offset > 0:
                 left.rename_index(idx, chr(ord(idx) + offset))
 
-        # print('my new spec list', left._index_spec_list)
-        # print('right new spec list', right._index_spec_list)
+        # GLOBALS.p('my new spec list', left._index_spec_list)
+        # GLOBALS.p('right new spec list', right._index_spec_list)
 
         result = OldStructuredTensor(left._index_spec_list + right._index_spec_list, left.tensors + right.tensors)
-        print(f'contracting {self.tag} and {other.tag}')
-        print(','.join(self._index_spec_list) + ' * ' + ','.join(other._index_spec_list) + ' = ' + ','.join(result._index_spec_list))
+        GLOBALS.p(f'contracting {self.tag} and {other.tag}')
+        GLOBALS.p(','.join(self._index_spec_list) + ' * ' + ','.join(other._index_spec_list) + ' = ' + ','.join(result._index_spec_list))
         return result
 
     def __mul__(self, other):
@@ -2512,7 +2517,7 @@ class OldStructuredTensor(Tensor):
 
         new_einsum_spec = ','.join(new_terms) + '->' + ein_out
         if new_einsum_spec != self._einsum_spec:
-            print("Warning, diagonal hack")
+            GLOBALS.p("Warning, diagonal hack")
             return torch.einsum(new_einsum_spec, *self.tensors)
         return torch.einsum(self._einsum_spec, *self.tensors)
 
@@ -2544,8 +2549,8 @@ class OldStructuredTensor(Tensor):
         # TODO(y): replace terms with something user provided
         # terms: ['term1', 'term2', 'term3', 'term4']
         terms = [f'term{i}' for i in range(len(indices))]
-        print('optimizing ', einsum_str, terms)
-        print('flops: ', info.opt_cost)
+        GLOBALS.p('optimizing ', einsum_str, terms)
+        GLOBALS.p('flops: ', info.opt_cost)
 
         # output_subscript: ['kl']
         output_subscript = output_indices
@@ -2556,10 +2561,10 @@ class OldStructuredTensor(Tensor):
         derived_count = 0
         for i, contract_inds in enumerate(path):
             contract_inds = tuple(sorted(list(contract_inds), reverse=True))
-            # print(f'contracting {contract_inds}, input {input_index_sets}, output {output_indices}')
+            # GLOBALS.p(f'contracting {contract_inds}, input {input_index_sets}, output {output_indices}')
             contract_tuple = oe_helpers.find_contraction(contract_inds, input_index_sets, output_indices)
             out_inds, input_index_sets, _, idx_contract = contract_tuple
-            # print(f'idx_contract {idx_contract}, out_inds {out_inds}')
+            # GLOBALS.p(f'idx_contract {idx_contract}, out_inds {out_inds}')
 
             current_input_index_sets = [indices.pop(x) for x in contract_inds]
             current_terms = [terms.pop(x) for x in contract_inds]
@@ -2584,9 +2589,9 @@ class OldStructuredTensor(Tensor):
                 new_terms.append(current_terms[i])
                 new_sets.append(current_input_index_sets[i])
             # einsum_str = ",".join(current_input_index_sets) + "->" + current_output_indices
-            #        print(f'{derived_term}=einsum({einsum_str}, {current_terms})')
+            #        GLOBALS.p(f'{derived_term}=einsum({einsum_str}, {current_terms})')
             einsum_str = ",".join(new_sets) + "->" + current_output_indices
-            print(f'{derived_term}=einsum({einsum_str}, {new_terms})')
+            GLOBALS.p(f'{derived_term}=einsum({einsum_str}, {new_terms})')
 
 
 class TensorContractionChain:
@@ -2675,7 +2680,7 @@ def check_equal(observed, truth, rtol=1e-9, atol=1e-12, label: str = '') -> None
     assert truth.shape == observed.shape, f"Observed shape {observed.shape}, expected shape {truth.shape}"
     # run np.testing.assert_allclose for extra info on discrepancies
     if not np.allclose(observed, truth, rtol=rtol, atol=atol, equal_nan=True):
-        print(f'Numerical testing failed for {label}')
+        GLOBALS.p(f'Numerical testing failed for {label}')
         np.testing.assert_allclose(truth, observed, rtol=rtol, atol=atol, equal_nan=True)
 
 
