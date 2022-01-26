@@ -1,5 +1,5 @@
 """Base types used everywhere"""
-
+import sys
 from abc import ABC, abstractmethod
 from typing import List, Tuple, Dict, Any, Optional
 from typing import Union
@@ -40,17 +40,16 @@ class _GLOBALS_CLASS:
     global_forward_flops: int
 
     def __init__(self):
-        self.DEBUG = True
+        self.DEBUG_HESSIAN = True
         self.switch_composition_order = False
         self.global_forward_flops = 0
-        self.DEBUG = True
         self.device = 'cpu'
         self.PURE_TENSOR_NETWORKS = False
         self.tensor_count = 0
         self.function_count = {}  # {LinearLayer: 1, Relu: 2}
         self.function_dict = {}  # {LinearLayer: 1, Relu: 2}
         self.ALLOW_PARTIAL_CONTRACTIONS = True  # allow some indices of the left tensor to remain uncontracted
-        self.CHANGE_DEFAULT_ORDER_OF_FINDING_IN_INDICES = False   # the original order turned out to be wrong for the Hessian case
+        self.CHANGE_DEFAULT_ORDER_OF_FINDING_IN_INDICES = False  # the original order turned out to be wrong for the Hessian case
         self.ALLOW_UNSORTED_INDICES = False
         self.MAX_INDEX_COUNT = 1000
         self.idx0 = 'a'
@@ -628,7 +627,7 @@ class TensorContraction(Tensor, TensorSharedImpl):
         new_specs = []
         for original_spec in self._original_specs:
             out_idx, in_idx = original_spec[0].split('|')
-            new_idx_spec = in_idx+'|'+out_idx
+            new_idx_spec = in_idx + '|' + out_idx
 
             assert len(original_spec[1].shape) <= 2, "Don't support transposing tensors with rank above 2"
             if len(original_spec[1].shape) == 2:
@@ -656,7 +655,6 @@ class TensorContraction(Tensor, TensorSharedImpl):
             copy_tensors.append((bottom + top + '|'))
         return TensorContraction(self._original_specs, copy_tensors=copy_tensors)
 
-
     def __mul__(self, other: 'TensorContraction') -> 'TensorContraction':
         """Contraction operation"""
 
@@ -674,7 +672,8 @@ class TensorContraction(Tensor, TensorSharedImpl):
         # this can potentially be relaxed to make contractions commutative
         # however, all current applications only need left-to-right order, and this was the only case that's well tested, hence require it
         if not GLOBALS.CHANGE_DEFAULT_ORDER_OF_FINDING_IN_INDICES:
-            assert len(left.in_idx) >= len(right.out_idx), f"only allow partial contraction on left tensor, right tensor must contract all output indices, contracting {left.ricci_out} with {right.ricci_out}"
+            assert len(left.in_idx) >= len(
+                right.out_idx), f"only allow partial contraction on left tensor, right tensor must contract all output indices, contracting {left.ricci_out} with {right.ricci_out}"
 
         # rename indices of right to avoid clashes
         if len(right.contracted_idx + right.in_idx):
@@ -714,7 +713,8 @@ class TensorContraction(Tensor, TensorSharedImpl):
 
             tensor_spec = self.children_specs[largest_in_tensor_id]
             out_idx, in_idx = tensor_spec.split('|')
-            assert len(set(in_idx).intersection(left.in_idx)) >= len(right.out_idx), f"not enough in indices to contract on tensor {largest_in_tensor_id}"
+            assert len(set(in_idx).intersection(left.in_idx)) >= len(
+                right.out_idx), f"not enough in indices to contract on tensor {largest_in_tensor_id}"
             left_contracted = list(set(in_idx).intersection(left.in_idx))[:len(right.out_idx)]
             # if not in_idx_ranks.keys():
             #     # fall back on previous method, which works for diagonal tensors
@@ -920,7 +920,7 @@ class FunctionSharedImpl:
     name: str  # name of the layer, used for human-readable representation
 
     base_name: str  # name of original function, before differentiation
-    order: int    # derivative order
+    order: int  # derivative order
 
     def __init__(self, name=None, base_name=None, order=0):
         """Creating name for function:
@@ -951,7 +951,7 @@ class FunctionSharedImpl:
             count = GLOBALS.function_count.get(name, 0)
             GLOBALS.function_count[name] = count + 1
             name = name if count == 0 else f"{name}{count:02d}"
-        if name not in ['@', '+', '*']:   # don't save automatically created composite functions
+        if name not in ['@', '+', '*']:  # don't save automatically created composite functions
             assert name not in GLOBALS.function_dict, f"Function {name} has already been created"
             GLOBALS.function_dict[name] = self
         self.name = name
@@ -996,10 +996,11 @@ class FunctionSharedImpl:
         else:
             # don't merge Function Composition chains, this complicates caching.
             return FunctionComposition([self, other])
-#            if isinstance(self, FunctionComposition):
-#                return FunctionComposition(self.children + [other])
-#            else:
-#                return FunctionComposition([self, other])
+
+    #            if isinstance(self, FunctionComposition):
+    #                return FunctionComposition(self.children + [other])
+    #            else:
+    #                return FunctionComposition([self, other])
 
     def __rmatmul__(self, other: 'Function'):
         print("Calling R-matmul")
@@ -1078,6 +1079,7 @@ class FunctionAddition(CompositeFunction):
             result = result + c(t)
         return result
 
+
 def make_function_addition(children) -> Function:
     children = [c for c in children if not isinstance(c, ZeroFunction)]
     if len(children) == 0:
@@ -1142,7 +1144,7 @@ class MemoizedFunctionComposition(CompositeFunction):
             else:
                 if hasattr(child, 'parent') and child.parent is not None:
                     if child.parent == self:
-                        pass   # all is good, still pointing to current parent
+                        pass  # all is good, still pointing to current parent
                     else:
                         # special case for derivatives, we create new chains like D(f4) f3 f2 f1
                         if self.children and type(self.children[0]).__name__.startswith('D'):
@@ -1211,7 +1213,7 @@ class MemoizedFunctionComposition(CompositeFunction):
 
         return self._saved_outputs[idx]
 
-    def __call__(self, arg: Vector) -> Vector:
+    def __call__(self, arg):
         if self.parent is not None:
             assert isinstance(self.parent, MemoizedFunctionComposition)
             if self.parent.arg is not None:
@@ -1267,6 +1269,8 @@ class UnmemoizedFunctionComposition(CompositeFunction):
 
 
 FunctionComposition = UnmemoizedFunctionComposition
+
+
 # FunctionComposition = MemoizedFunctionComposition
 
 def make_function_composition(children):
@@ -1362,9 +1366,9 @@ class D_(Operator):
         elif isinstance(other, FunctionComposition):
             mul_children1 = []  # old way
             for (i, c1) in enumerate(other.children):
-                if i+1 == len(other.children):  # last term
+                if i + 1 == len(other.children):  # last term
                     mul_children1.append(D(c1))
-                elif i+1 == len(other.children) - 1:
+                elif i + 1 == len(other.children) - 1:
                     mul_children1.append(make_function_composition([D(c1)] + other.children[i + 1:]))
                 else:
                     mul_children1.append(make_function_composition([D(c1)] + [other[i + 1:]]))
@@ -1375,11 +1379,11 @@ class D_(Operator):
                 #     break
                 # mul_children1.append(make_function_composition([D(c1)] + [other[i + 1:]]))
 
-            #mul_children2 = []  # new way
-            #for i in range(len(other.children)-1, -1, -1):
+            # mul_children2 = []  # new way
+            # for i in range(len(other.children)-1, -1, -1):
             #    c1 = other.children[i]
             #    mul_children2.append(make_function_composition([D(c1)] + other.children[i + 1:]))
-            #mul_children2 = list(reversed(mul_children2))
+            # mul_children2 = list(reversed(mul_children2))
             return make_function_contraction(mul_children1)
 
         else:
@@ -1387,14 +1391,16 @@ class D_(Operator):
 
 
 D = D_(_dont_use_order=1)
-dont_use_D2 = D_(_dont_use_order=2)   # this operator only works correctly on leaf nodes
+dont_use_D2 = D_(_dont_use_order=2)  # this operator only works correctly on leaf nodes
 
 
 def diag(t: TensorContraction):
     return t.diag
 
+
 def trace(t: TensorContraction):
     return t.trace
+
 
 class OldContractibleTensor(Tensor, ABC):
     """
@@ -1707,9 +1713,16 @@ class D_LeastSquares(AtomicFunction, LinearizedFunction):
         if self.order == 1:
             return x.T
         elif self.order == 2:
+            # print("")
+            # assert False, f"sys.exit() {GLOBALS.DEBUG_HESSIAN}"
             assert len(x.out_dims) == 1
-            if GLOBALS.DEBUG:
+            if GLOBALS.DEBUG_HESSIAN:
                 return TensorContraction.from_dense_quadratic_form(torch.eye(x.out_dims[0]))
+            else:
+                # return Hessian subspace using Rademacher variables
+                d = x.out_dims[0]
+                x00 = (torch.randint(0, 2, (d,)) * 2 - 1).float()
+                return TensorContraction([('|a', x00), ('|b', x00)])
 
     @property
     def d1(self):
@@ -1797,7 +1810,6 @@ class OldIdentity(AtomicFunction):
             return MemoizedFunctionComposition([self, other])
         else:
             return NotImplemented
-
 
 
 import torch.nn.functional as F
@@ -2117,7 +2129,6 @@ class OldDLinearLayer(AtomicFunction, LinearizedFunction):
             return self
         else:
             return Zero
-
 
 
 class OldStructuredTensor(Tensor):

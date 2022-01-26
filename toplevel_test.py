@@ -148,7 +148,6 @@ def test_unit_test_a():
     assert GLOBALS.get_global_forward_flops() == 4
     check_equal(a5, 1250)
 
-
 def test_sigmoid():
     (W0, U0, x0, x, h1, h2, h3, h4) = _old_create_unit_test_a()
     (_unused_W, _unused_nonlin, _unused_U, _unused_loss) = (h1, h2, h3, h4)
@@ -530,63 +529,8 @@ def test_partial_contraction_UnitTestC():
     assert (result2 * vec * vec).ricci_out == 'a|g'
     assert (result2 * vec * vec * vec).ricci_out == 'a|'
 
-
 """
-def test_unit_test_A():
-
-    W = Linear([[1, -2], [-3, 4]])
-    U = Linear([[5, -6], [-7, 8]])
-    x0 = make_vector([1, 2])
-    nonlin = make_sigmoid(x0)
-    loss = make_xent(x0)   # x0 used for shape inference
-
-    (h1, h2, h3, h4) = (W, nonlin, U, loss)
-    f = h4 @ h3 @ h2 @ h1  # => Composition (FunctionComposition)
-    h = [None, f[3], f[2], f[1], f[0]]  # h[1] shorthand for h1, linked to a parent Composition
-    assert type(h[1]) == Linear
-
-    D(f)   # this is numerically equivalent to D(U) @ W * D(W)
-    slow = D(U) @ W * D(W)
-    fast = D(f) @ f[1:] * D(f[1])
-
-    print(slow(x0).forward_flops)  # high
-    print(fast(x0).forward_flops)   # low
-
-    D(f)    # LazyDLinear # represents derivative of linear layer
-    nonlin = make_sigmoid(x0)
-    D(nonlin)   # LazyDRelu #
-
-def old_test_unit_test_A():
-    # W = DenseMatrix([[1, -2], [-3, 4]])
-    # U = DenseMatrix([[5, -6], [-7, 8]])
-    # print(W._indices())
-    # x = DenseVector([1, 2])
-    # loss = CrossEntropy()
-    # layers = [W, nonlin, U]
-    W = make_linear([[1, -2], [-3, 4]])
-    U = make_linear([[5, -6], [-7, 8]])
-    x0 = make_vector([1, 2])
-    nonlin = make_relu(x0)
-    loss = make_xent(x0)   # x0 used for shape inference
-
-    (h1, h2, h3, h4) = (W, nonlin, U, loss)
-    h = [None, W, nonlin, U, loss]  # h[1] shorthand for h1
-
-    # TODO(y): add call count and make sure memoization is happening
-
-    # go through Mechanics of converting this network to einsum notation
-    f = h4 @ h3 @ h2 @ h1  # => Composition (FunctionComposition)
-    df = D(f)  # Linear Function
-
-    # chain rule with no memoization
-    assert (D(h4) @ h3 @ h2 @ h1) * D(h3) @ h2 @ h1 * D(h2) @ h1 * D(h1) == df
-
-    # chain rule with memoization
-    D(h4)  # @ f[1:] # @ D(h3) @ f[2:] @ D(h2) @ f[3:] @ D(h1)
-"""
-
-"""
-def test_present0():
+def test_overall():
     # reverse mode
 
     from einograd import jacobian, forward, to_expression
@@ -627,8 +571,6 @@ def test_present0():
     hvp = hess @ vector
     print(hvp.flops)
     print(hvp.value)
-"""
-
 
 def test_names():
     (W0, U0, x0, x, h1, h2, h3, h4) = _create_unit_test_a()
@@ -661,7 +603,7 @@ def test_names():
     ddloss1 = D(D(loss1))
     assert ddloss1.human_readable == 'D_D_LeastSquares'
     assert id(GLOBALS.function_dict['D_D_LeastSquares']) == id(ddloss1)
-
+"""
 
 # @pytest.mark.skip(reason="doesn't work yet")
 def test_derivatives():
@@ -1222,9 +1164,261 @@ def test_factored_diagonal():
     assert B.diag.flops == 10
     assert B.flops == 100
 
+def test_derivatives_factored():
+    (W0, U0, x0, x, h1, h2, h3, h4) = _create_unit_test_a()
+    (_unused_W, _unused_nonlin, _unused_U, _unused_loss) = (h1, h2, h3, h4)
+    (W, nonlin, U, loss) = (h1, h2, h3, h4)
+
+    # (h1, h2, h3, h4) = (W, nonlin, U, loss)
+    f = MemoizedFunctionComposition([h4, h3, h2, h1])
+    f_slow = FunctionComposition([h4, h3, h2, h1])
+    assert type(h1) == LinearLayer
+    assert type(h4) == LeastSquares
+
+    a1 = x
+    a2 = h1(a1)  # a_i gives input into i'th layer
+    a3 = h2(a2)
+    a4 = h3(a3)
+    a5 = h4(a4)
+    check_equal(a1, [1, 2])
+    check_equal(a2, [-3, 5])
+    check_equal(a3, [0, 5])
+    check_equal(a4, [-30, 40])
+    check_equal(a5, 1250)
+
+    # check per-layer Jacobians
+    dh1, dh2, dh3, dh4 = D(h1), D(h2), D(h3), D(h4)
+
+    check_equal(dh1(a1), W0)
+    check_equal(dh2(a2), [[0, 0], [0, 1]])
+    check_equal(dh3(a3), [[5, -6], [-7, 8]])
+
+    # simple hessian
+    (W0, U0, x0, x, h1, h2, h3, h4) = _create_unit_test_a()
+    (_unused_W, _unused_nonlin, _unused_U, _unused_loss) = (h1, h2, h3, h4)
+    (W, nonlin, U, loss) = (h1, h2, h3, h4)
+
+    D_W = D(W)
+    assert D_W.human_readable == 'D_W'
+    D_D_W = D(D_W)
+    assert D_D_W.human_readable == 'f_zero'
+
+    def hess(f):
+        return D(D(f))
+
+    print(hess(W)(x))
+    check_equal(hess(W)(x), 0)
+
+    check_equal(hess(loss)(x), torch.eye(2))
+    first_deriv = D(loss @ W)
+    second_deriv = D(first_deriv)
+    print(second_deriv)
+    print(hess(U))
+
+    print(hess(loss @ W))
+    print(D(loss @ W))
+
+    # check end-to-end derivative
+    # GLOBALS.CHANGE_DEFAULT_ORDER_OF_FINDING_IN_INDICES = False
+    GLOBALS.reset_function_count()
+
+    f_slow = h1
+    deriv = D(f_slow)
+    check_equal(deriv(x), [[1., -2.], [-3., 4.]])
+
+    f_slow = FunctionComposition([h2, h1])
+    deriv = D(f_slow)
+    check_equal(deriv(x), [[0., 0.], [-3., 4.]])
+
+    f_slow = FunctionComposition([h3, h2, h1])
+    deriv = D(f_slow)
+    check_equal(deriv(x), [[18., -24.], [-24., 32.]])
+
+    # f_slow = h4
+    # deriv = D(f_slow)
+    check_equal(D(h4)(a4), [-30, 40])
+
+    f_slow = h4
+    deriv = D(f_slow)
+    check_equal(deriv(a4), [-30, 40])
+
+    (W, nonlin, U, loss) = (h1, h2, h3, h4)
+
+    relu = h2
+    lsqr = h4
+
+
+    check_equal(D(W)(x), [[1., -2.], [-3., 4.]])
+    check_equal((D(relu) @ W * D(W))(x), [[0., 0.], [-3., 4.]])
+    check_equal((((D(U) @ relu @ W) * (D(relu)) @ W) * D(W))(x), [[18., -24.], [-24., 32.]])
+    # ((D(h4) @ U @ relu @ W) * (D_U01 @ relu @ W) * (D_relu02 @ W) * D_W03)
+
+    check_equal(D(h4)(a4), [-30, 40])
+    check_equal(D(h3)(a3), [[5., -6.], [-7., 8.]])
+    check_equal(D(h4)(a4) * D(h3)(a3), [-430, 500])
+
+    dH4 = D(h4) @ U @ relu @ W
+    dH3 = D(U) @ relu @ W
+    dH2 = D(relu) @ W
+    dH1 = D(W)
+    check_equal((dH4 * dH3 * dH2 * dH1)(x), [-1500, 2000])
+
+    f_slow = FunctionComposition([h4, h3, h2, h1])
+    deriv = D(f_slow)
+    check_equal(deriv(x), [-1500, 2000])
+
+    GLOBALS.CHANGE_DEFAULT_ORDER_OF_FINDING_IN_INDICES = True
+    W0 = torch.tensor([[1., -2.], [-3., 4.]])
+    ii = torch.eye(2)
+    check_equal(torch.einsum('ab,ac,bd->cd', ii, W0, W0), W0.T @ W0)
+    check_equal([[10., -14.], [-14., 20.]], W0.T @ W0)
+    # second derivatives
+    GLOBALS.reset_function_count()
+    f = lsqr @ W
+    deriv = D(f)
+    hess = D(deriv)
+    check_equal(hess(x), [[10., -14.], [-14., 20.]])
+
+    #GLOBALS.CHANGE_DEFAULT_ORDER_OF_FINDING_IN_INDICES = False
+
+    def hessian(f):
+        return D(D(f))
+    g = h3 @ h2 @ h1
+    dg = D(g)
+    check_equal(dg(x), [[18., -24.], [-24., 32.]])
+    d2f = hessian(h4)
+    check_equal(d2f(x), [[1, 0], [0, 1]])
+    check_equal((d2f(x)*dg(x))*dg(x), [[900., -1200.], [-1200., 1600.]])
+
+    gauss_newton = ((d2f @ g) * dg) * dg
+    check_equal(gauss_newton(x), [[900., -1200.], [-1200., 1600.]])
+
+
+    f_slow = loss @ relu
+    f_hess = hessian(f_slow)
+    check_equal(f_hess(x), [[1, 0], [0, 1]])
+
+    f_slow = loss @ U @ relu
+    f_hess = hessian(f_slow)
+    check_equal(f_hess(x), [[74., -86.], [-86., 100.]])
+
+    GLOBALS.reset_function_count()
+    g = h3 @ h2 @ h1
+    dg = D(g)
+    d2f = hessian(h4)
+    gauss_newton = ((d2f @ g) * dg) * dg
+    check_equal(gauss_newton(x), [[900., -1200.], [-1200., 1600.]])
+
+
+    print(gauss_newton.human_readable)
+    GLOBALS.reset_function_count()
+
+    # this calculation only works with left-to-right composition order
+    # GLOBALS.CHANGE_DEFAULT_ORDER_OF_FINDING_IN_INDICES = False
+    # GLOBALS.switch_composition_order = False
+
+    f_slow = h4 @ (h3 @ h2 @ h1)
+    myhess = hessian(f_slow)
+    print(myhess.human_readable)
+
+    print(hessian(f_slow)(x) * x)
+    check_equal(hessian(f_slow)(x) * x, [-1500, 2000])
+
+    check_equal(hessian(f_slow)(x).diag, [900, 1600])
+    check_equal(hessian(f_slow)(x).trace, 2500)
+
+    check_equal(hessian(f_slow)(x), [[900., -1200.], [-1200., 1600.]])
+    # GLOBALS.CHANGE_DEFAULT_ORDER_OF_FINDING_IN_INDICES = False
+    # GLOBALS.switch_composition_order = True
+
+    # GLOBALS.DEBUG_HESSIANS = False
+    # myhess = hessian(f_slow)
+    myhess = hessian(f_slow)
+    diag_flops_regular = diag(myhess(x)).flops
+
+    GLOBALS.DEBUG_HESSIAN = False
+    myhess = hessian(f_slow)
+    diag_flops_factored = diag(myhess(x)).flops
+    full_flops_factored = myhess(x).flops
+
+    print(diag_flops_regular, diag_flops_factored, full_flops_factored)
+
+
+@pytest.mark.skip()
+def test_activation_reuse():
+    (W0, U0, x0, x, h1, h2, h3, h4) = _create_unit_test_a()
+    (_unused_W, _unused_nonlin, _unused_U, _unused_loss) = (h1, h2, h3, h4)
+
+    # (h1, h2, h3, h4) = (W, nonlin, U, loss)
+    f = FunctionComposition([h4, h3, h2, h1])
+
+    a1 = x
+    a2 = h1(a1)  # a_i gives input into i'th layer
+    a3 = h2(a2)
+    a4 = h3(a3)
+    a5 = h4(a4)
+    check_equal(a1, [1, 2])
+    check_equal(a2, [-3, 5])
+    check_equal(a3, [0, 5])
+    check_equal(a4, [-30, 40])
+    check_equal(a5, 1250)
+
+    # check per-layer Jacobians
+    dh1, dh2, dh3, dh4 = D(h1), D(h2), D(h3), D(h4)
+
+    check_equal(dh1(a1), W0)
+    check_equal(dh2(a2), [[0, 0], [0, 1]])
+    check_equal(dh3(a3), [[5, -6], [-7, 8]])
+    check_equal(dh4(a4), [-30, 40])
+    check_equal(dh4(a4) * dh3(a3), [-430, 500])
+    check_equal(dh4(a4) * dh3(a3) * dh2(a2), [0, 500])
+    check_equal(dh4(a4) * dh3(a3) * dh2(a2) * dh1(a1), [-1500, 2000])
+
+    GLOBALS.reset_global_forward_flops()
+    assert GLOBALS.get_global_forward_flops() == 0
+
+    result = f(x)
+    check_equal(result, 1250)
+    assert GLOBALS.get_global_forward_flops() == 4
+    _unused_result = f(x)
+    assert GLOBALS.get_global_forward_flops() == 4
+
+    # creating new composition does not reuse cache
+    (W0, U0, x0, x, h1, h2, h3, h4) = _old_create_unit_test_a()
+    (_unused_W, _unused_nonlin, _unused_U, _unused_loss) = (h1, h2, h3, h4)
+    f = FunctionComposition([h4, h3, h2, h1])
+    _unused_result = f(x)
+    assert GLOBALS.get_global_forward_flops() == 2 * 4
+
+    # partial composition test
+    GLOBALS.reset_global_forward_flops()
+    print('flops ', GLOBALS.get_global_forward_flops())
+    (W0, U0, x0, x, h1, h2, h3, h4) = _old_create_unit_test_a()
+    (_unused_W, _unused_nonlin, _unused_U, _unused_loss) = (h1, h2, h3, h4)
+    f = FunctionComposition([h4, h3, h2, h1])
+    # result = f(x)
+    a2 = f[3:](x)  # input into h2
+    assert GLOBALS.get_global_forward_flops() == 1
+    check_equal(a2, [-3, 5])
+
+    a4 = f[1:](x)  #
+    assert GLOBALS.get_global_forward_flops() == 3
+    check_equal(a4, [-30, 40])
+
+    a5 = f[:](x)  #
+    assert GLOBALS.get_global_forward_flops() == 4
+    check_equal(a5, 1250)
+
+    a5 = f[0:](x)  #
+    assert GLOBALS.get_global_forward_flops() == 4
+    check_equal(a5, 1250)
+
+
 def run_all():
-    test_factored_diagonal()
+    test_activation_reuse()
     sys.exit()
+    test_derivatives_factored()
+    test_factored_diagonal()
     test_outer_product()
     test_hvp()
     test_nesting()
