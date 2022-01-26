@@ -837,9 +837,9 @@ def test_hvp():
     loss0 = loss(net(x_var))
     check_equal(hvp(loss0, x_var, x0), hessian(f)(x) * x)
 
-@pytest.mark.skip()
 def test_memoized_hvp():
     # test Hessian vector product against PyTorch implementation
+    GLOBALS.reset_global_state()
     GLOBALS.CHANGE_DEFAULT_ORDER_OF_FINDING_IN_INDICES = False
 
     GLOBALS.enable_memoization = True
@@ -1390,7 +1390,6 @@ def run_all():
     test_hvp()
     test_outer_product()
     test_derivatives()
-    # sys.exit()
     test_outer_product()
     test_unit_test_a()
     test_activation_reuse2()
