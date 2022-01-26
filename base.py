@@ -1023,7 +1023,7 @@ class FunctionSharedImpl:
             # return f'({self.name}:{child_str})'  # (1+2)
             return f'({child_str})'  # (1+2)
         else:
-            return self.name
+            return self.name if hasattr(self, "name") else f"(Unnnamed type(self).__name__)"
 
     def __str__(self):
         return self.human_readable
@@ -1117,14 +1117,18 @@ def make_function_contraction(children) -> Function:
         return FunctionContraction(children)
 
 
-class MemoizedFunctionComposition(CompositeFunction):
+class MemoizedOrUnemoizedFunctionComposition(CompositeFunction):
+    pass
+
+
+class MemoizedFunctionComposition(MemoizedOrUnemoizedFunctionComposition):
     """Represents a composition of functions with memoization
     Unbound call, ie f@g@h, can be used as intermediate result for constructing a composition
     Bound call, ie (f@g@h)(x), at this point it is frozen and can't be modified.
     """
 
     children: List[Any]  # List[Function] fix: forward references
-    # parent               # FunctionComposition type, multiple Compositions point here. fix: forward reference
+    parent: 'MemoizedFunctionComposition'
     arg: Any
 
     def __init__(self, children, parent=None):
@@ -1137,21 +1141,21 @@ class MemoizedFunctionComposition(CompositeFunction):
 
         # if creating a sub-composition, extra sanity check that the nodes we are using
         # are already pointing to the parent composition
-        for child in children:
-            if parent:
-                #  assert child.parent == parent
-                pass
-            else:
-                if hasattr(child, 'parent') and child.parent is not None:
-                    if child.parent == self:
-                        pass  # all is good, still pointing to current parent
-                    else:
-                        # special case for derivatives, we create new chains like D(f4) f3 f2 f1
-                        if self.children and type(self.children[0]).__name__.startswith('D'):
-                            pass
-                        else:
-                            assert False, f"Warning, Node {child} already has parent {child.parent} which is not current parent {self}"
-                child.parent = self
+        # for child in children:
+        #     if parent:
+        #         #  assert child.parent == parent
+        #         pass
+        #     else:
+        #         if hasattr(child, 'parent') and child.parent is not None:
+        #             if child.parent == self:
+        #                 pass  # all is good, still pointing to current parent
+        #             else:
+        #                 # special case for derivatives, we create new chains like D(f4) f3 f2 f1
+        #                 if self.children and type(self.children[0]).__name__.startswith('D'):
+        #                     pass
+        #                 else:
+        #                     assert False, f"Warning, Node {child} already has parent {child.parent} which is not current parent {self}"
+        #         child.parent = self
 
     def __matmul__(self, other):
         assert self.arg is None, "Can't combine compositions with bound parameters"
@@ -1164,6 +1168,7 @@ class MemoizedFunctionComposition(CompositeFunction):
 
     # only allow simple slicing
     def __getitem__(self, s):
+        assert self.arg is not None, f"Can't slice composition chain {self} without binding argument first"
         if isinstance(s, slice):
             if isinstance(s.step, int):
                 assert s.step == 1
@@ -1173,7 +1178,9 @@ class MemoizedFunctionComposition(CompositeFunction):
             assert s.stop is None
             assert len(self.children[s.start:]) > 0, f"only have {len(self.children)} members of composition, " \
                                                      f"attempted to start at {s.start} "
-            return MemoizedFunctionComposition(self.children[s.start:], backlink)
+            sub_composition = MemoizedFunctionComposition(self.children[s.start:], backlink)
+            sub_composition._bind(self.arg)
+            return sub_composition
         else:
             assert False, "use [i:i+1] slicing instead of [i] is ambiguous"
             # assert isinstance(s, int)
@@ -1186,32 +1193,56 @@ class MemoizedFunctionComposition(CompositeFunction):
 
     def memoized_compute(self, node) -> Optional[torch.Tensor]:
         """Composition([h3,h2,h1]): memoized_compute(h2) computes everything up to h2"""
-        assert self.arg is not None, "arg not bound, call _bind first"
-        assert id(self._saved_outputs[len(self.children)]) == id(self.arg)
-        assert node in self.children, f"Trying to compute {node} but it's not in Composition"
-        idx = self.children.index(node)
+        print(f'{node}: {self}')
+        print(f"{node} in {self}: {node in self.children}")
+        print(f"### {node} in {self}, have child: {node in self.children} have parent: {self.parent is not None}, {self.parent is not None and 'D_' not in self.parent.human_readable:}")
+        # assert self.arg is not None, f"argument not bound in {self}, call _bind first"
+        # assert id(self._saved_outputs[len(self.children)]) == id(self.arg)
 
-        # last_saved gives position of function whose output has been cached
-        # we treat "x" as a dummy function which returns itself, so
-        # last_cached == len(children) means just the output of "x" was cached
-        for last_cached in range(len(self.children)):
-            if self._saved_outputs[last_cached] is not None:
-                break
+        if self.parent is not None:
+            # terrible hack, special handling for new compositions with derivative terms
+            if "D_" not in self.parent.human_readable:
+                print(f"### {self} deferring to parent {self.parent}")
+                assert isinstance(self.parent, MemoizedFunctionComposition)
+                return self.parent.memoized_compute(node)
+
+        # assert node in self.children, f"Trying to compute {node} but it's not in Composition"
+        if node in self.children:
+            idx = self.children.index(node)
+
+            # last_saved gives position of function whose output has been cached
+            # we treat "x" as a dummy function which returns itself, so
+            # last_cached == len(children) means just the output of "x" was cached
+            for last_cached in range(len(self.children)):
+                if self._saved_outputs[last_cached] is not None:
+                    break
+            else:
+                last_cached = len(self.children)
+
+            print(f'found saved output of {last_cached} node')
+            for i in range(last_cached - 1, idx - 1, -1):
+                if i == len(self.children):
+                    assert id(self._saved_outputs[last_cached]) == id(self.arg)
+                    continue
+
+                if not isinstance(self.children[i], MemoizedFunctionComposition):
+                    print(f"### {self} calling compute on {self.children[i]}")
+
+                result = self.children[i](self._saved_outputs[i + 1])
+                self._saved_outputs[i] = result
+                print('saving output of ', i)
+
+            return self._saved_outputs[idx]
         else:
-            last_cached = len(self.children)
-
-        print(f'found saved output of {last_cached} node')
-        for i in range(last_cached - 1, idx - 1, -1):
-            if i == len(self.children):
-                assert id(self._saved_outputs[last_cached]) == id(self.arg)
-                continue
-
-            GLOBALS.increment_global_forward_flops(1)
-            result = self.children[i](self._saved_outputs[i + 1])
-            self._saved_outputs[i] = result
-            print('saving output of ', i)
-
-        return self._saved_outputs[idx]
+            # try to defer to child composition, ie
+            # value is requested for U in [D_lsqr @ (U@relu@W)], this defers computation of U to child (U@relu@W)
+            for child in self.children:
+                if isinstance(child, MemoizedFunctionComposition):
+                    try:
+                        return child.memoized_compute(node)
+                    except RuntimeError:
+                        continue
+        raise RuntimeError(f"couldn't compute {node} in Composition {self}")
 
     def __call__(self, arg):
         if self.parent is not None:
@@ -1241,7 +1272,7 @@ class MemoizedFunctionComposition(CompositeFunction):
 
 
 # TODO(y): rename to FunctionNesting? compositvefunction/functioncomposition clash
-class UnmemoizedFunctionComposition(CompositeFunction):
+class UnmemoizedFunctionComposition(MemoizedOrUnemoizedFunctionComposition):
     def __init__(self, children: List['Function']):
         super().__init__(name='@')
         # self.name = '@'
@@ -1269,8 +1300,6 @@ class UnmemoizedFunctionComposition(CompositeFunction):
 
 
 FunctionComposition = UnmemoizedFunctionComposition
-
-
 # FunctionComposition = MemoizedFunctionComposition
 
 def make_function_composition(children):
@@ -1363,14 +1392,15 @@ class D_(Operator):
             return make_function_addition(add_children)
 
         # chain rule
-        elif isinstance(other, FunctionComposition):
+        elif isinstance(other, MemoizedOrUnemoizedFunctionComposition):
             mul_children1 = []  # old way
             for (i, c1) in enumerate(other.children):
                 if i + 1 == len(other.children):  # last term
                     mul_children1.append(D(c1))
                 elif i + 1 == len(other.children) - 1:
-                    mul_children1.append(make_function_composition([D(c1)] + other.children[i + 1:]))
-                else:
+                    #mul_children1.append(make_function_composition([D(c1)] + other.children[i + 1:]))
+                    mul_children1.append(make_function_composition([D(c1)] + [other[i + 1:]]))
+                else:   # TODO(y): redundant
                     mul_children1.append(make_function_composition([D(c1)] + [other[i + 1:]]))
                 # mul_children1.append(make_function_composition([D(c1)] + other.children[i + 1:]))
 
@@ -1681,6 +1711,7 @@ class LeastSquares(AtomicFunction):
 
     def __call__(self, x: TensorContraction):
         x = x.value
+        GLOBALS.increment_global_forward_flops(1)
         return DenseScalar((x * x).sum() / 2)
 
     def d(self, order=1):
@@ -1709,6 +1740,7 @@ class D_LeastSquares(AtomicFunction, LinearizedFunction):
 
     def __call__(self, x: TensorContraction) -> TensorContraction:
         assert self.order <= 2, "third and higher order derivatives not implemented"
+        GLOBALS.increment_global_forward_flops(1)
 
         if self.order == 1:
             return x.T
@@ -1892,6 +1924,7 @@ class Relu(AtomicFunction):
 
     def __call__(self, x: TensorContraction):
         assert isinstance(x, TensorContraction)
+        GLOBALS.increment_global_forward_flops(1)
         x = x.value
         return TensorContraction.from_dense_vector(F.relu(x))
 
@@ -1919,6 +1952,7 @@ class D_Relu(AtomicFunction, LinearizedFunction):
         return ZeroFunction()
 
     def __call__(self, x: TensorContraction) -> TensorContraction:
+        GLOBALS.increment_global_forward_flops(1)
         if self.order == 1:
             x = x.value
             return TensorContraction.from_diag_matrix((x > torch.tensor(0)).float())
@@ -2073,6 +2107,7 @@ class LinearLayer(AtomicFunction):
             return ZeroFunction()
 
     def __call__(self, x: TensorContraction) -> TensorContraction:
+        GLOBALS.increment_global_forward_flops(1)
         assert isinstance(x, TensorContraction)
         return self.W * x
 
@@ -2095,6 +2130,7 @@ class D_LinearLayer(AtomicFunction, LinearizedFunction):
         self.W = W
 
     def __call__(self, _unused_x: Tensor) -> TensorContraction:
+        GLOBALS.increment_global_forward_flops(1)
         return self.W
 
     def d(self, order=1):
