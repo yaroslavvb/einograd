@@ -1215,10 +1215,17 @@ def test_outer_product():
     #    assert (mat * mat * col * row * mat * mat).flops == 1000 # mixed mode
     assert (col * row).flops == d * d  # outer product
 
+def test_factored_diagonal():
+    d = 10
+    x00 = torch.ones((d,))
+    B = TensorContraction([('|a', x00), ('|b', x00)])
+    assert B.diag.flops == 10
+    assert B.flops == 100
 
 def run_all():
-    test_outer_product()
+    test_factored_diagonal()
     sys.exit()
+    test_outer_product()
     test_hvp()
     test_nesting()
     test_derivatives()

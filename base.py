@@ -1390,6 +1390,12 @@ D = D_(_dont_use_order=1)
 dont_use_D2 = D_(_dont_use_order=2)   # this operator only works correctly on leaf nodes
 
 
+def diag(t: TensorContraction):
+    return t.diag
+
+def trace(t: TensorContraction):
+    return t.trace
+
 class OldContractibleTensor(Tensor, ABC):
     """
     Original implementation, only supports 1 and 2 index contractions
