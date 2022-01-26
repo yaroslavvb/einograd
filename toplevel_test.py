@@ -1178,10 +1178,48 @@ def test_nesting():
     f = loss @ U @ nonlin @ W
     print(f.human_readable)
 
+def test_outer_product():
+    d = 10
+    x00 = torch.ones((d, d))
+    y00 = torch.ones((d, d))
+    z00 = 2 * torch.ones((d, d))
+
+    a = TensorContraction.__legacy_init__(['a|b', 'b|c'], [x00, y00])
+    check_equal(a, x00 @ y00)
+    assert a.flops == 2 * d ** 3
+
+    x = TensorContraction.__legacy_init__(['i|j', 'j|k', 'k|l'], [x00, y00, z00])
+    check_equal(x, x00 @ y00 @ z00)
+
+    x = TensorContraction.__legacy_init__(['a|b'], [x00])
+    y = TensorContraction.__legacy_init__(['a|b'], [y00])
+    z = TensorContraction.__legacy_init__(['a|b'], [z00])
+
+
+    # sanity basic FLOP counts from
+    # https://www.dropbox.com/s/47jxfhkb5g9nwvb/einograd-flops-basic.pdf?dl=0
+
+    xyz = x * y * z
+    assert xyz.flops == 4 * d ** 3
+    check_equal(xyz, x00 @ y00 @ z00)
+
+    x00 = torch.ones((d,))
+    ma0 = 2 * torch.ones(d, d)
+    col = TensorContraction.from_dense_vector(x00, 'col')
+    row = TensorContraction.from_dense_covector(x00, 'row')
+    mat = TensorContraction.from_dense_matrix(ma0, 'mat')
+
+    assert (row * mat * mat * mat).flops == 600  # reverse mode
+    assert (mat * mat * mat * col).flops == 600  # forward mode
+
+    #    assert (mat * mat * col * row * mat * mat).flops == 1000 # mixed mode
+    assert (col * row).flops == d * d  # outer product
+
 
 def run_all():
-    test_hvp()
+    test_outer_product()
     sys.exit()
+    test_hvp()
     test_nesting()
     test_derivatives()
     test_transpose()

@@ -40,6 +40,7 @@ class _GLOBALS_CLASS:
     global_forward_flops: int
 
     def __init__(self):
+        self.DEBUG = True
         self.switch_composition_order = False
         self.global_forward_flops = 0
         self.DEBUG = True
@@ -1701,7 +1702,8 @@ class D_LeastSquares(AtomicFunction, LinearizedFunction):
             return x.T
         elif self.order == 2:
             assert len(x.out_dims) == 1
-            return TensorContraction.from_dense_quadratic_form(torch.eye(x.out_dims[0]))
+            if GLOBALS.DEBUG:
+                return TensorContraction.from_dense_quadratic_form(torch.eye(x.out_dims[0]))
 
     @property
     def d1(self):
