@@ -1193,13 +1193,13 @@ def test_derivatives_factored():
     GLOBALS.DEBUG_HESSIAN = True
 
 
-
 def test_activation_reuse():
     (W0, U0, x0, x, h1, h2, h3, h4) = _create_unit_test_a()
     (_unused_W, _unused_nonlin, _unused_U, _unused_loss) = (h1, h2, h3, h4)
 
     # (h1, h2, h3, h4) = (W, nonlin, U, loss)
-    f = MemoizedFunctionComposition([h4, h3, h2, h1])
+    GLOBALS.enable_memoization = True
+    f = make_function_composition([h4, h3, h2, h1])
 
     a1 = x
     a2 = h1(a1)  # a_i gives input into i'th layer
@@ -1299,6 +1299,9 @@ def test_activation_reuse():
     result2 = f[1:](x)
     check_equal(result2, [-30, 40])
     assert GLOBALS.get_global_forward_flops() == 4
+
+    GLOBALS.enable_memoization = False
+
 
 def test_activation_reuse2():
     GLOBALS.reset_global_forward_flops()

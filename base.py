@@ -40,6 +40,12 @@ class _GLOBALS_CLASS:
     global_forward_flops: int
 
     def __init__(self):
+        self.init_values()
+
+    def reset_global_state(self):
+        self.init_values()
+
+    def init_values(self):
         self.DEBUG_HESSIAN = True
         self.switch_composition_order = False
         self.global_forward_flops = 0
@@ -1816,34 +1822,6 @@ class OldDLeastSquares(AtomicFunction, LinearizedFunction):
 
     def d(self, order=1):
         return OldDLeastSquares(dim=self._in_dims[0], order=self.order + order)
-
-    @property
-    def in_dims(self):
-        return self._in_dims
-
-    @property
-    def out_dims(self):
-        return self._out_dims
-
-    def __matmul__(self, other):
-        if isinstance(other, AtomicFunction):
-            return MemoizedFunctionComposition([self, other])
-        else:
-            return NotImplemented
-
-
-# TODO(y): rename to IdentityLayer (to disambig from IdentityLinearMap)
-# noinspection PyMissingConstructor
-class OldIdentity(AtomicFunction):
-    def __init__(self, dim: int):
-        self._in_dims = (dim,)
-        self._out_dims = (dim,)
-
-    def __call__(self, x: Tensor):
-        return x
-
-    def d(self, order=1):
-        return OldDIdentity(self._in_dims[0])
 
     @property
     def in_dims(self):
