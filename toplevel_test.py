@@ -1175,13 +1175,14 @@ def test_nesting():
     (_unused_W, _unused_nonlin, _unused_U, _unused_loss) = (h1, h2, h3, h4)
     (W, nonlin, U, loss) = (h1, h2, h3, h4)
 
-    f = W @ W @ W
+    f = loss @ U @ nonlin @ W
     print(f.human_readable)
 
 
 def run_all():
-    test_nesting()
+    test_hvp()
     sys.exit()
+    test_nesting()
     test_derivatives()
     test_transpose()
     test_nesting()

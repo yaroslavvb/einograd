@@ -1017,7 +1017,7 @@ class FunctionSharedImpl:
 
         if isinstance(self, CompositeFunction):
             child_str = self.name.join(str(c) for c in self.children)
-            assert len(self.children) > 1, "found composition with one child or less"
+            assert len(self.children) > 0, "found composition with one child or less"
             return f'({child_str})'  # (1+2)
         else:
             return self.name
@@ -1138,13 +1138,22 @@ class MemoizedFunctionComposition(CompositeFunction):
                 assert child.parent == parent
             else:
                 if hasattr(child, 'parent') and child.parent is not None:
-                    assert False, f"Warning, Node {child} already has parent {child.parent}"
+                    if child.parent == self:
+                        pass   # all is good, still pointing to current parent
+                    else:
+                        # special case for derivatives, we create new chains like D(f4) f3 f2 f1
+                        if self.children and type(self.children[0]).__name__.startswith('D'):
+                            pass
+                        else:
+                            assert False, f"Warning, Node {child} already has parent {child.parent} which is not current parent {self}"
                 child.parent = self
 
     def __matmul__(self, other):
         assert self.arg is None, "Can't combine compositions with bound parameters"
         if isinstance(other, Function):
-            return MemoizedFunctionComposition(self.children + [other])
+            # don't merge Function Composition chains, this complicates caching.
+            # return MemoizedFunctionComposition(self.children + [other])
+            return MemoizedFunctionComposition([self, other])
         else:
             return NotImplemented
 
@@ -1174,7 +1183,7 @@ class MemoizedFunctionComposition(CompositeFunction):
         """Composition([h3,h2,h1]): memoized_compute(h2) computes everything up to h2"""
         assert self.arg is not None, "arg not bound, call _bind first"
         assert id(self._saved_outputs[len(self.children)]) == id(self.arg)
-        assert node in self.children, "Trying to compute {node} but it's not in Composition"
+        assert node in self.children, f"Trying to compute {node} but it's not in Composition"
         idx = self.children.index(node)
 
         # last_saved gives position of function whose output has been cached
@@ -1200,7 +1209,6 @@ class MemoizedFunctionComposition(CompositeFunction):
         return self._saved_outputs[idx]
 
     def __call__(self, arg: Vector) -> Vector:
-        assert isinstance(arg, Vector), "must call function with Vector type"
         if self.parent is not None:
             assert isinstance(self.parent, MemoizedFunctionComposition)
             if self.parent.arg is not None:
@@ -1256,7 +1264,7 @@ class UnmemoizedFunctionComposition(CompositeFunction):
 
 
 FunctionComposition = UnmemoizedFunctionComposition
-# FunctionComposition = MemoizedFunctionComposition
+#  FunctionComposition = MemoizedFunctionComposition
 
 def make_function_composition(children):
     if len(children) == 0:
@@ -1352,6 +1360,12 @@ class D_(Operator):
             mul_children1 = []  # old way
             for (i, c1) in enumerate(other.children):
                 mul_children1.append(make_function_composition([D(c1)] + other.children[i + 1:]))
+                continue
+
+                # old logic for memoized conversion
+                if i + 1 >= len(other.children):
+                    break
+                mul_children1.append(make_function_composition([D(c1)] + [other[i + 1:]]))
             #mul_children2 = []  # new way
             #for i in range(len(other.children)-1, -1, -1):
             #    c1 = other.children[i]
