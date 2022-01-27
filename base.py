@@ -207,6 +207,13 @@ class TensorContraction(Tensor, TensorSharedImpl):
     def __legacy_init__(index_spec_list, tensors, label=None) -> 'TensorContraction':
         return TensorContraction(list((i, t) for (i, t) in zip(index_spec_list, tensors)), label=label)
 
+    def print_full_spec(self):
+        for spec, data, label in zip(self.children_specs, self.children_data, self.children_labels):
+            print(label)
+            print(spec)
+            print(data)
+            print('------')
+
     def __init__(self, specs: Union[List[Tuple], Tuple[Tuple]], copy_tensors=None, label=None):
         """
 
