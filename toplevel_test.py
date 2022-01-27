@@ -108,11 +108,9 @@ def _create_medium_network():
     return [loss] + layers, x, list(reversed(value_tensors))
 
 
-def _create_medium_semirandom_network(no_nonlin=False):
+def _create_medium_semirandom_network(skip_nonlin=False, width=2, depth=2):
     GLOBALS.reset_function_count()
     torch.manual_seed(1)
-    d = 2
-    depth = 1
 
     layers = []
     value_tensors = []
@@ -121,26 +119,26 @@ def _create_medium_semirandom_network(no_nonlin=False):
     U0_ = to_pytorch([[5, -6], [-7, 8]])
 
     for layer_num in range(depth):
-        if layer_num == 0 and d == 2:
+        if layer_num == 0 and width == 2:
             W0 = W0_
-        elif layer_num == 1 and d == 2:
+        elif layer_num == 1 and width == 2:
             W0 = U0_
 
         else:
             if layer_num == 0:
-                W0 = torch.eye(d) #torch.randn((d, d)) * math.sqrt(1 / d)
+                W0 = torch.randn((width, width)) * math.sqrt(1 / width)
             else:
-                W0 = torch.eye(d)
+                W0 = torch.eye(width)
 
         layers.append(LinearLayer(W0, name=f'W-{layer_num}'))
         value_tensors.append(W0)
         nonlin = Relu(name=f'relu-{layer_num}')
-        if layer_num < depth - 1 and not no_nonlin:
+        if layer_num < depth - 1 and not skip_nonlin:
             layers.append(nonlin)
 
     loss = LeastSquares(name='lsqr')
-    x0 = torch.ones((d,))
-    if d >= 1:
+    x0 = torch.ones((width,))
+    if width >= 1:
         x0[1] = 2
 
     x = TensorContraction.from_dense_vector(x0, label='x')
@@ -1472,16 +1470,32 @@ def test_hvp():
     print("Expected HVP is ", (hessian(f)(x) * x).value)
 
 
-@pytest.mark.skip()
 def test_medium_hvp():
     # test Hessian vector product against PyTorch implementation
-    GLOBALS.CHANGE_DEFAULT_ORDER_OF_FINDING_IN_INDICES = False
     GLOBALS.enable_memoization = True
     GLOBALS.reset_global_state()
 
-    skip_nonlin = True
+    GLOBALS.CHANGE_DEFAULT_ORDER_OF_FINDING_IN_INDICES = False
+    skip_nonlin = False
+    layers, x, value_tensors = _create_medium_semirandom_network(width=2, depth=2, skip_nonlin=skip_nonlin)
 
-    layers, x, value_tensors = _create_medium_semirandom_network(skip_nonlin)
+    # Working version
+    # GLOBALS.CHANGE_DEFAULT_ORDER_OF_FINDING_IN_INDICES = True
+    # skip_nonlin = True
+    # layers, x, value_tensors = _create_medium_semirandom_network(width=2, depth=1, skip_nonlin=skip_nonlin)
+
+
+    # Working version
+    #    GLOBALS.CHANGE_DEFAULT_ORDER_OF_FINDING_IN_INDICES = True
+    #    skip_nonlin = False
+    #    layers, x, value_tensors = _create_medium_semirandom_network(width=2, depth=1, skip_nonlin=skip_nonlin)
+
+    # this one doesn't work
+    #    GLOBALS.CHANGE_DEFAULT_ORDER_OF_FINDING_IN_INDICES = True
+    #    skip_nonlin = False
+    #    layers, x, value_tensors = _create_medium_semirandom_network(width=2, depth=2, skip_nonlin=skip_nonlin)
+
+
     f = make_function_composition(layers)
     f._bind(x)
 
@@ -1493,8 +1507,14 @@ def test_medium_hvp():
     def hessian(f):
         return D(D(f))
 
+    g = D(f)
     h = hessian(f)
     # print("Hessian Trace efficient: ", trace(h(x)).flops/10**9)
+
+    print("Gradient Flops: ", g(x).flops)
+    print("HVP Flops: ", (h(x) * x).flops)
+    print("Hessian Flops: ", h(x).flops)
+    print("Hessian Trace: ", trace(h(x)).flops)
 
     hvp_ours = (h(x) * x)
     hvp_ours0 = hvp_ours.value
@@ -1509,7 +1529,7 @@ def test_medium_hvp():
 
     hess_ours = h(x)
     hess_ours0 = hess_ours.value
-    if len(value_tensors) == 1 and skip_nonlin:
+    if len(value_tensors) == 1 and skip_nonlin and value_tensors[0].shape[0] == 2:
         print(hess_ours0)  # should be {{10., -14.}, {-14., 20.}}
         check_equal(hvp_ours0, [-18., 26.])
 
