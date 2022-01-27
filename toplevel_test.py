@@ -1580,6 +1580,47 @@ def test_medium_hvp():
     check_equal(hvp_theirs, hvp_ours0, rtol=1e-5, atol=1e-5)
     GLOBALS.reset_global_state()
 
+@pytest.mark.skip(reason="not actually a test")
+def test_large_hvp():
+    # test Hessian vector product against PyTorch implementation
+    GLOBALS.enable_memoization = True
+    GLOBALS.reset_global_state()
+
+    layers, x, value_tensors = _create_medium_semirandom_network(width=1000, depth=10)
+    f = make_function_composition(layers)
+    f._bind(x)
+
+    # print(value_tensors)
+
+    # check_equal(f[1:](x), [-3, 5])
+    # check_equal(f[3:](x), [1, 2])   # this returns [-1, 1] instead of [1, 2]
+
+    def hessian(f):
+        return D(D(f))
+
+    g = D(f)
+    h = hessian(f)
+    # print("Hessian Trace efficient: ", trace(h(x)).flops/10**9)
+
+    def fnum(num):
+        return "{:,}".format(num)
+
+    print("Gradient Flops: ", fnum(g(x).flops))
+    print("HVP Flops: ", fnum((h(x) * x).flops))
+    print("Hessian Flops: ", fnum(h(x).flops))
+    print("Hessian Trace exact: ", fnum(trace(h(x)).flops))
+    print("Hessian Diag exact: ", fnum(diag(h(x)).flops))
+
+    hessian_trace_exact0 = trace(h(x)).value
+
+    GLOBALS.FULL_HESSIAN = False
+    h = hessian(f)
+    print("Hessian Trace factored: ", fnum(trace(h(x)).flops))
+    print("Hessian diag factored: ", fnum(diag(h(x)).flops))
+
+
+    GLOBALS.reset_global_state()
+
 @pytest.mark.skip()
 def test_larger_factored_hessian():
     GLOBALS.reset_global_state()
@@ -1614,7 +1655,8 @@ def test_larger_factored_hessian():
 
 def run_all():
     # test_hvp()
-    test_medium_hvp()
+    test_large_hvp()
+    # test_medium_hvp()
     sys.exit()
     test_derivatives_factored()
     test_memoized_hvp()
