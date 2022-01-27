@@ -136,14 +136,13 @@ def _create_medium_semirandom_network(skip_nonlin=False, width=2, depth=2):
         if layer_num < depth - 1 and not skip_nonlin:
             layers.append(nonlin)
 
-    loss = LeastSquares(name='lsqr')
     x0 = torch.ones((width,))
     if width >= 1:
         x0[1] = 2
 
     x = TensorContraction.from_dense_vector(x0, label='x')
     # noinspection PyTypeChecker
-    return [loss] + list(reversed(layers)), x, value_tensors
+    return list(reversed(layers)), x, value_tensors
 
 
 def _create_unit_test_a_sigmoid():
@@ -1495,8 +1494,8 @@ def test_medium_hvp():
     #    skip_nonlin = False
     #    layers, x, value_tensors = _create_medium_semirandom_network(width=2, depth=2, skip_nonlin=skip_nonlin)
 
-
-    f = make_function_composition(layers)
+    g = make_function_composition(layers)
+    f = LeastSquares(name='lsqr') @ g
     f._bind(x)
 
     # print(value_tensors)
@@ -1654,9 +1653,10 @@ def test_larger_factored_hessian():
     trace_approximate = trace(h(x)).value
 
 def run_all():
+    test_medium_hvp()
+    sys.exit()
     # test_hvp()
     test_large_hvp()
-    # test_medium_hvp()
     sys.exit()
     test_derivatives_factored()
     test_memoized_hvp()
