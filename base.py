@@ -1937,12 +1937,6 @@ class Relu(AtomicFunction):
         else:
             return ZeroFunction()
 
-    def __matmul__(self, other):
-        if isinstance(other, AtomicFunction):
-            return FunctionComposition([self, other])
-        else:
-            return NotImplemented
-
 
 class D_Relu(AtomicFunction, LinearizedFunction):
     """Derivatives of relu"""

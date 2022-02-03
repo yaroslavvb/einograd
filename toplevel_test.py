@@ -66,6 +66,7 @@ def _create_unit_test_a():
     x = TensorContraction.from_dense_vector(x0, label='x')
     return W0, U0, x0, x, W, nonlin, U, loss
 
+
 def _create_large_identity_network():
     GLOBALS.reset_function_count()
     d = 1000
@@ -96,7 +97,7 @@ def _create_medium_network():
     for layer_num in range(depth):
         nonlin = Relu(name=f'relu-{layer_num}')
         layers.append(nonlin)
-        W0 = torch.randn((d, d)) * math.sqrt(1/d)
+        W0 = torch.randn((d, d)) * math.sqrt(1 / d)
         value_tensors.append(W0)
         layers.append(LinearLayer(W0, name=f'W-{layer_num}'))
 
@@ -653,6 +654,8 @@ def test_overall():
     print(hvp.flops)
     print(hvp.value)
 """
+
+
 def test_names():
     (W0, U0, x0, x, h1, h2, h3, h4) = _create_unit_test_a()
     (_unused_W, _unused_nonlin, _unused_U, _unused_loss) = (h1, h2, h3, h4)
@@ -921,7 +924,6 @@ def test_memoized_hvp():
     loss0 = loss(net(x_var))
     check_equal(hvp(loss0, x_var, x0), hessian(f)(x) * x)
     GLOBALS.reset_global_state()
-
 
 
 def test_transpose():
@@ -1406,6 +1408,7 @@ def test_activation_reuse2():
     assert GLOBALS.get_global_forward_flops() == 7  # 4 derivatives, and 3 forward activations
     check_equal(g(x), [-1500, 2000])
 
+
 def test_hvp():
     # test Hessian vector product against PyTorch implementation
     GLOBALS.CHANGE_DEFAULT_ORDER_OF_FINDING_IN_INDICES = False
@@ -1483,7 +1486,6 @@ def test_medium_hvp():
     # skip_nonlin = True
     # layers, x, value_tensors = _create_medium_semirandom_network(width=2, depth=1, skip_nonlin=skip_nonlin)
 
-
     # Working version
     #    GLOBALS.CHANGE_DEFAULT_ORDER_OF_FINDING_IN_INDICES = True
     #    skip_nonlin = False
@@ -1532,8 +1534,6 @@ def test_medium_hvp():
         print(hess_ours0)  # should be {{10., -14.}, {-14., 20.}}
         check_equal(hvp_ours0, [-18., 26.])
 
-
-
     # obtain it using PyTorch
     from torch.autograd import Variable
     from torch import autograd
@@ -1579,6 +1579,7 @@ def test_medium_hvp():
     check_equal(hvp_theirs, hvp_ours0, rtol=1e-5, atol=1e-5)
     GLOBALS.reset_global_state()
 
+
 @pytest.mark.skip(reason="not actually a test")
 def test_large_hvp():
     # test Hessian vector product against PyTorch implementation
@@ -1599,6 +1600,7 @@ def test_large_hvp():
 
     g = D(f)
     h = hessian(f)
+
     # print("Hessian Trace efficient: ", trace(h(x)).flops/10**9)
 
     def fnum(num):
@@ -1617,8 +1619,8 @@ def test_large_hvp():
     print("Hessian Trace factored: ", fnum(trace(h(x)).flops))
     print("Hessian diag factored: ", fnum(diag(h(x)).flops))
 
-
     GLOBALS.reset_global_state()
+
 
 @pytest.mark.skip()
 def test_larger_factored_hessian():
@@ -1637,16 +1639,18 @@ def test_larger_factored_hessian():
 
     g = D(f)
     h = hessian(f)
-    print("Gradient Flops: ", g(x).flops/10**9)
-    print("HVP Flops: ", (h(x) * x).flops/10**9)
-    print("Hessian Flops: ", h(x).flops/10**9)
-    print("Hessian Trace: ", trace(h(x)).flops/10**9)
+    print("Gradient Flops: ", g(x).flops / 10 ** 9)
+    print("HVP Flops: ", (h(x) * x).flops / 10 ** 9)
+    print("Hessian Flops: ", h(x).flops / 10 ** 9)
+    print("Hessian Trace: ", trace(h(x)).flops / 10 ** 9)
 
     GLOBALS.FULL_HESSIAN = False
     h = hessian(f)
-    print("Hessian Trace efficient: ", trace(h(x)).flops/10**9)
+    print("Hessian Trace efficient: ", trace(h(x)).flops / 10 ** 9)
 
 
+# this test takes 11 seconds to run, need to also do "pip install pytest-skip-slow" then "pytest --slow" to reinclude this test
+@pytest.mark.slow()
 def test_thu():
     W0 = to_pytorch([[1, -2], [-3, 4]])
     U0 = to_pytorch([[5, -6], [-7, 8]])
@@ -1662,36 +1666,56 @@ def test_thu():
     objective = loss @ g
     hessian = D(D(objective))
     hvp = hessian(x) * x
-    print(hvp.flops)    # 44 flops
-    print(hvp.value)    # [-1500.,  2000]
-    print(D(objective)(x).flops)   # 26 flops
+    print(hvp.flops)  # 44 flops
+    print(hvp.value)  # [-1500.,  2000]
+    print(D(objective)(x).flops)  # 26 flops
 
     dg = D(g)
     d2l = D(D(loss))
     gauss_newton = ((d2l @ g) * dg) * dg
-    print('gn: ', gauss_newton(x).flops)    # 72 flops
-    print('hessian: ', hessian(x).flops)    # 72 flops
+    print('gn: ', gauss_newton(x).flops)  # 72 flops
+    print('hessian: ', hessian(x).flops)  # 72 flops
 
-    print('diff: ', torch.norm(hessian(x).value-gauss_newton(x).value))  # tensor(0.)
+    print('diff: ', torch.norm(hessian(x).value - gauss_newton(x).value))  # tensor(0.)
 
     layers, x, value_tensors = _create_medium_network()
     f = make_function_composition(layers)
 
     g = D(f)
     h = D(D(f))
-    print("Gradient Flops: ", g(x).flops/10**9)
-    print("HVP Flops: ", (h(x) * x).flops/10**9)
-    print("Hessian Flops: ", h(x).flops/10**9)
-    print("Hessian Diagonal: ", diag(h(x)).flops/10**9)
-    print("Hessian Trace: ", trace(h(x)).flops/10**9)
+    print("Gradient Flops: ", g(x).flops / 10 ** 9)
+    print("HVP Flops: ", (h(x) * x).flops / 10 ** 9)
+    print("Hessian Flops: ", h(x).flops / 10 ** 9)
+    print("Hessian Diagonal: ", diag(h(x)).flops / 10 ** 9)
+    print("Hessian Trace: ", trace(h(x)).flops / 10 ** 9)
 
     GLOBALS.FULL_HESSIAN = False
     h = D(D(f))
-    print("Hessian Trace efficient: ", trace(h(x)).flops/10**9)
-    print("Hessian Diag efficient: ", diag(h(x)).flops/10**9)
+    print("Hessian Trace efficient: ", trace(h(x)).flops / 10 ** 9)
+    print("Hessian Diag efficient: ", diag(h(x)).flops / 10 ** 9)
+
+
+def test_with_three_layers():
+    W0 = to_pytorch([[1, -2], [-3, 4]])
+    x0 = to_pytorch([1, 2])
+
+    W = LinearLayer(W0, name='W')
+    nonlin = Relu(name='relu')
+    loss = LeastSquares(name='lsqr')
+    x = TensorContraction.from_dense_vector(x0, label='x')
+
+    # g = U @ nonlin @ W
+    # objective = loss @ g
+    # hessian = D(D(objective))
+    # hvp = hessian(x) * x
+    # print(hvp.flops)  # 44 flops
+    # print(hvp.value)  # [-1500.,  2000]
+    # print(D(objective)(x).flops)  # 26 flops
 
 
 def run_all():
+    test_with_three_layers()
+    sys.exit()
     # test_thu()
     # sys.exit()
     test_larger_factored_hessian()
