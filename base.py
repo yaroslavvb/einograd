@@ -1964,6 +1964,53 @@ class D_Relu(AtomicFunction, LinearizedFunction):
             return NotImplemented
 
 
+class Square(AtomicFunction):
+    """One dimensional relu"""
+
+    def __init__(self, name=None):
+        super().__init__(name=name)
+
+    def __call__(self, x: TensorContraction):
+        assert isinstance(x, TensorContraction)
+        GLOBALS.increment_global_forward_flops(1)
+        x = x.value
+        return TensorContraction.from_dense_vector(torch.square(x))
+
+    def d(self, order=1):
+        if order == 1:
+            return D_Square(order=order, base_name=self.human_readable)
+        else:
+            return ZeroFunction()
+
+
+class D_Square(AtomicFunction, LinearizedFunction):
+    """Derivatives of square function"""
+
+    def __init__(self, name=None, base_name=None, order: int = 1):
+        # super.__init__(name=name, base_name=base_name, order=order)
+        super().__init__(name=name, base_name=base_name, order=order)
+
+    def d(self, order=1):
+        return ZeroFunction()
+
+    def __call__(self, x: TensorContraction) -> TensorContraction:
+        GLOBALS.increment_global_forward_flops(1)
+        if self.order == 1:
+            x = x.value
+            return TensorContraction.from_diag_matrix(2*x)
+        elif self.order == 2:
+            assert False, "Not implemented"
+
+    def __matmul__(self, other):
+        if isinstance(other, AtomicFunction):
+            if GLOBALS.enable_memoization:
+                return MemoizedFunctionComposition([self, other])
+            else:
+                return UnmemoizedFunctionComposition([self, other])
+        else:
+            return NotImplemented
+
+
 # noinspection PyMissingConstructor
 class OldSigmoid(AtomicFunction):
     """One dimensional relu"""

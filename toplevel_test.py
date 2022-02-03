@@ -259,6 +259,13 @@ def test_relu():
     result = df(DenseVector([-3, 5]))
     check_equal(result, [[0, 0], [0, 1]])
 
+def test_square():
+    f = Square()
+    df = D(f)
+    x = TensorContraction.from_dense_vector(to_pytorch([-3, 5]))
+    check_equal(f(x), [9, 25])
+    check_equal(df(x), torch.diag(to_pytorch([-6, 10])))
+
 
 def test_least_squares():
     (W0, U0, x0, x, h1, h2, h3, h4) = _old_create_unit_test_a()
@@ -1714,6 +1721,7 @@ def test_with_three_layers():
 
 
 def run_all():
+    test_square()
     test_with_three_layers()
     sys.exit()
     # test_thu()
