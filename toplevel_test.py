@@ -88,8 +88,8 @@ def _create_large_identity_network():
 def _create_medium_network():
     GLOBALS.reset_function_count()
     torch.manual_seed(1)
-    d = 3
-    depth = 5
+    d = 1000
+    depth = 10
 
     layers = []
     value_tensors = []
@@ -1641,23 +1641,64 @@ def test_larger_factored_hessian():
     print("HVP Flops: ", (h(x) * x).flops/10**9)
     print("Hessian Flops: ", h(x).flops/10**9)
     print("Hessian Trace: ", trace(h(x)).flops/10**9)
-    trace_exact = trace(h(x)).value
 
     GLOBALS.FULL_HESSIAN = False
     h = hessian(f)
-
     print("Hessian Trace efficient: ", trace(h(x)).flops/10**9)
-    hvp_ours = (h(x) * x).value
 
 
-    trace_approximate = trace(h(x)).value
+def test_thu():
+    W0 = to_pytorch([[1, -2], [-3, 4]])
+    U0 = to_pytorch([[5, -6], [-7, 8]])
+    x0 = to_pytorch([1, 2])
+
+    W = LinearLayer(W0, name='W')
+    U = LinearLayer(U0, name='U')
+    nonlin = Relu(name='relu')
+    loss = LeastSquares(name='lsqr')
+    x = TensorContraction.from_dense_vector(x0, label='x')
+
+    g = U @ nonlin @ W
+    objective = loss @ g
+    hessian = D(D(objective))
+    hvp = hessian(x) * x
+    print(hvp.flops)    # 44 flops
+    print(hvp.value)    # [-1500.,  2000]
+    print(D(objective)(x).flops)   # 26 flops
+
+    dg = D(g)
+    d2l = D(D(loss))
+    gauss_newton = ((d2l @ g) * dg) * dg
+    print('gn: ', gauss_newton(x).flops)    # 72 flops
+    print('hessian: ', hessian(x).flops)    # 72 flops
+
+    print('diff: ', torch.norm(hessian(x).value-gauss_newton(x).value))  # tensor(0.)
+
+    layers, x, value_tensors = _create_medium_network()
+    f = make_function_composition(layers)
+
+    g = D(f)
+    h = D(D(f))
+    print("Gradient Flops: ", g(x).flops/10**9)
+    print("HVP Flops: ", (h(x) * x).flops/10**9)
+    print("Hessian Flops: ", h(x).flops/10**9)
+    print("Hessian Diagonal: ", diag(h(x)).flops/10**9)
+    print("Hessian Trace: ", trace(h(x)).flops/10**9)
+
+    GLOBALS.FULL_HESSIAN = False
+    h = D(D(f))
+    print("Hessian Trace efficient: ", trace(h(x)).flops/10**9)
+    print("Hessian Diag efficient: ", diag(h(x)).flops/10**9)
+
 
 def run_all():
+    # test_thu()
+    # sys.exit()
+    test_larger_factored_hessian()
     test_medium_hvp()
-    sys.exit()
     # test_hvp()
-    test_large_hvp()
-    sys.exit()
+    # test_large_hvp()
+    # sys.exit()
     test_derivatives_factored()
     test_memoized_hvp()
     test_hvp()
