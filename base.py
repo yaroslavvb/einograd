@@ -1803,6 +1803,74 @@ class D_LeastSquares(AtomicFunction, LinearizedFunction):
         return -48
 
 
+class LeastSquares(AtomicFunction):
+    """Least squares loss"""
+
+    def __init__(self, name=None):
+        super().__init__(name=name)
+
+    def __call__(self, x: TensorContraction):
+        x = x.value
+        GLOBALS.increment_global_forward_flops(1)
+        return DenseScalar((x * x).sum() / 2)
+
+    def d(self, order=1):
+        return D_LeastSquares(order=order, base_name=self.human_readable)
+
+    @property
+    def in_dims(self):
+        return -43
+
+    @property
+    def out_dims(self):
+        return -45
+
+    # def __matmul__(self, other):
+    #     if isinstance(other, AtomicFunction):
+    #         return FunctionComposition([self, other])
+    #     else:
+    #         return NotImplemented
+
+
+class D_LeastSquares(AtomicFunction, LinearizedFunction):
+    """Derivatives of LeastSquares"""
+
+    def __init__(self, name=None, base_name=None, order: int = 1):
+        super().__init__(name=name, base_name=base_name, order=order)
+
+    def __call__(self, x: TensorContraction) -> TensorContraction:
+        assert self.order <= 2, "third and higher order derivatives not implemented"
+        GLOBALS.increment_global_forward_flops(1)
+
+        if self.order == 1:
+            return x.T
+        elif self.order == 2:
+            # GLOBALS.p("")
+            # assert False, f"sys.exit() {GLOBALS.DEBUG_HESSIAN}"
+            assert len(x.out_dims) == 1
+            if GLOBALS.FULL_HESSIAN:
+                return TensorContraction.from_dense_quadratic_form(torch.eye(x.out_dims[0]))
+            else:
+                # return Hessian subspace using Rademacher variables
+                d = x.out_dims[0]
+                x00 = (torch.randint(0, 2, (d,)) * 2 - 1).float()
+                return TensorContraction([('|a', x00), ('|b', x00)])
+
+    @property
+    def d1(self):
+        return self.d(1)
+
+    def d(self, order=1):
+        return D_LeastSquares(order=self.order + order)
+
+    @property
+    def in_dims(self):
+        return -47
+
+    @property
+    def out_dims(self):
+        return -48
+
 # noinspection PyMissingConstructor
 class OldDLeastSquares(AtomicFunction, LinearizedFunction):
     """Derivatives of LeastSquares"""
